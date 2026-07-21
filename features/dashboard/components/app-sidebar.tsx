@@ -26,6 +26,7 @@ import {
   MessageSquareWarning,
   Receipt,
   ReceiptText,
+  Route,
   ScrollText,
   Settings2,
   Unplug,
@@ -101,6 +102,7 @@ const MENU = [
     label: "Operasional Lapangan",
     minRole: null,
     item: [
+      { href: "/dashboard/pemetaan-rute", label: "Pemetaan rute", icon: Route },
       { href: "/dashboard/pengaduan", label: "Pengaduan", icon: MessageSquareWarning },
       { href: "/dashboard/laporan-mandiri", label: "Laporan mandiri", icon: Camera },
       { href: "/dashboard/laporan-harian", label: "Laporan harian petugas", icon: ClipboardCheck },

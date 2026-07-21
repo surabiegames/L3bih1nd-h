@@ -53,6 +53,8 @@ import { akunWargaRouter } from "./modules/publik/akun-warga.router"
 import { langgananSayaRouter } from "./modules/publik/langganan-saya.router"
 import { cronRouter } from "./modules/cron/cron.router"
 import { authMobileRouter } from "./modules/mobile/auth-mobile.router"
+import { perangkatRouter, notifikasiRouter } from "./modules/notifikasi/notifikasi.router"
+import { penugasanRuteRouter } from "./modules/organisasi/penugasan-rute.router"
 
 export const app = new Hono()
 
@@ -127,6 +129,7 @@ v1.route("/divisi", divisiRouter)
 v1.route("/bagian", bagianRouter)
 v1.route("/sub-bagian", subBagianRouter)
 v1.route("/pencatat", pencatatRouter)
+v1.route("/penugasan-rute", penugasanRuteRouter)
 v1.route("/target-kinerja", targetKinerjaRouter)
 v1.route("/golongan-besar", golonganBesarRouter)
 v1.route("/tarif", tarifRouter)
@@ -159,6 +162,10 @@ v1.route("/dashboard", dashboardRouter)
 // Self-service akun warga (role USER) — tanpa requireRole, setiap query
 // terikat userId sesi. Lihat catatan di modules/publik/langganan-saya.router.ts.
 v1.route("/langganan-saya", langgananSayaRouter)
+// Push notification: token perangkat (mobile) + inbox in-app. Inbox terikat
+// userId sesi (tanpa requireRole); pendaftaran token dibatasi STAFF_UP.
+v1.route("/perangkat", perangkatRouter)
+v1.route("/notifikasi", notifikasiRouter)
 
 app.route("/api/v1", v1)
 

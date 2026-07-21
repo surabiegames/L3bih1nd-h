@@ -215,6 +215,21 @@ void main() {
       },
     );
 
+    testWidgets(
+      'baca meter multi-rute: daftar dikelompokkan per rute dengan header',
+      (tester) async {
+        await tester.pumpWidget(const PetugasApp());
+        await tester.pumpAndSettle();
+        await ketuk(tester, find.text('Pencatat Meter'));
+        await ketuk(tester, find.text('Baca Meter'));
+
+        // Petugas demo memegang 2 rute → badge "2 rute" + header per rute.
+        expect(find.text('2 rute'), findsWidgets);
+        expect(find.text('Rute R-042'), findsOneWidget);
+        expect(find.text('Rute R-043'), findsOneWidget);
+      },
+    );
+
     testWidgets('riwayat menampilkan hasil catat sendiri dengan status', (
       tester,
     ) async {

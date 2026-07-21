@@ -1,4 +1,7 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show CircularProgressIndicator;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -7,34 +10,49 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../../core/models/bill_model.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/widgets/app_scaffold.dart';
-import '../langganan/langganan_warga_repository.dart';
-import 'cek_tagihan_hasil.dart';
-import 'cek_tagihan_repository.dart';
+import '../../public/cek_tagihan/cek_tagihan_hasil.dart';
+import '../../public/cek_tagihan/cek_tagihan_repository.dart';
+import '../baca_meter/scan_qr_screen.dart';
 
-/// Cek Tagihan — publik, tanpa login.
-///
-/// Identitas cukup nomor langganan persis 11 digit; hasil menampilkan
-/// maksimal 12 periode terakhir plus ringkasan tunggakan.
-class CekTagihanScreen extends StatefulWidget {
-  const CekTagihanScreen({super.key});
+/// Info Tagihan — alat petugas lapangan untuk memeriksa rekening pelanggan
+/// di tempat (padanan Check Tagihan Aurora). Berbagi sumber data & tampilan
+/// hasil dengan layar Cek Tagihan publik (`/api/public/cek-tagihan`, jalan
+/// walau petugas terautentikasi), ditambah pengisian nomor lewat scan QR
+/// kartu meter — sehingga petugas tak perlu mengetik 11 digit di lapangan.
+class InfoTagihanScreen extends StatefulWidget {
+  const InfoTagihanScreen({super.key});
 
   @override
-  State<CekTagihanScreen> createState() => _CekTagihanScreenState();
+  State<InfoTagihanScreen> createState() => _InfoTagihanScreenState();
 }
 
-class _CekTagihanScreenState extends State<CekTagihanScreen> {
+class _InfoTagihanScreenState extends State<InfoTagihanScreen> {
   final _formKey = GlobalKey<ShadFormState>();
+  final _kontrol = TextEditingController();
   final _repo = CekTagihanRepository.create();
 
   bool _memuat = false;
   String? _galat;
   CekTagihanResult? _hasil;
 
+  /// Scanner hanya di Android/iOS (pola guard OcrStand/ScanQr).
+  static bool get _scanTersedia =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  @override
+  void dispose() {
+    _kontrol.dispose();
+    super.dispose();
+  }
+
   Future<void> _cek() async {
     final form = _formKey.currentState!;
     if (!form.saveAndValidate()) return;
     final nomor = form.value['nomorLangganan'] as String;
+    await _jalankan(nomor);
+  }
 
+  Future<void> _jalankan(String nomor) async {
     setState(() {
       _memuat = true;
       _galat = null;
@@ -52,21 +70,43 @@ class _CekTagihanScreenState extends State<CekTagihanScreen> {
     }
   }
 
+  Future<void> _scanQr() async {
+    final hasil = await Navigator.of(context).push<String>(
+      PageRouteBuilder(
+        pageBuilder: (_, _, _) => const ScanQrScreen(),
+        transitionsBuilder: (_, animasi, _, child) =>
+            FadeTransition(opacity: animasi, child: child),
+      ),
+    );
+    if (hasil == null || !mounted) return;
+    final digit = hasil.replaceAll(RegExp(r'\D'), '');
+    if (digit.length < 11) {
+      setState(
+        () => _galat =
+            'QR tidak memuat nomor langganan 11 digit yang valid.',
+      );
+      return;
+    }
+    final nomor = digit.substring(digit.length - 11);
+    _kontrol.text = nomor;
+    await _jalankan(nomor);
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasil = _hasil;
 
     return AppScaffold(
-      title: 'Cek Tagihan',
-      subtitle: 'Informasi rekening air Anda',
+      title: 'Info Tagihan',
+      subtitle: 'Cek rekening pelanggan di lapangan',
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           ShadCard(
             title: const Text('Nomor Langganan'),
             description: const Text(
-              'Masukkan 11 digit nomor langganan sesuai yang tertera '
-              'pada rekening air Anda.',
+              'Ketik 11 digit nomor langganan, atau pindai QR pada kartu '
+              'meter pelanggan.',
             ),
             child: Padding(
               padding: const EdgeInsets.only(top: 12),
@@ -77,10 +117,7 @@ class _CekTagihanScreenState extends State<CekTagihanScreen> {
                   children: [
                     ShadInputFormField(
                       id: 'nomorLangganan',
-                      // Prefill nomor langganan UTAMA akun yang sedang
-                      // login (null saat anonim/cache belum termuat —
-                      // form tetap berfungsi seperti biasa).
-                      initialValue: LanggananSayaCache.utama?.nomorLangganan,
+                      controller: _kontrol,
                       placeholder: const Text('Contoh: 00000100119'),
                       keyboardType: TextInputType.number,
                       inputFormatters: [
@@ -105,6 +142,14 @@ class _CekTagihanScreenState extends State<CekTagihanScreen> {
                           : const Icon(CupertinoIcons.search),
                       child: Text(_memuat ? 'Memeriksa…' : 'Cek Tagihan'),
                     ),
+                    if (_scanTersedia) ...[
+                      const SizedBox(height: 8),
+                      ShadButton.outline(
+                        onPressed: _memuat ? null : _scanQr,
+                        leading: const Icon(CupertinoIcons.qrcode_viewfinder),
+                        child: const Text('Pindai QR'),
+                      ),
+                    ],
                   ],
                 ),
               ),

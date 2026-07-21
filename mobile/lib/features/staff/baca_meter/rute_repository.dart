@@ -480,6 +480,7 @@ class DemoRuteRepository implements RuteRepository {
       int standLalu,
       int pemakaianLalu, {
       bool sudah = false,
+      String ruteKode = 'R-042',
     }) => PelangganRute(
       id: 'demo-$nomor',
       nomorLangganan: nomor,
@@ -487,7 +488,7 @@ class DemoRuteRepository implements RuteRepository {
       alamat: alamat,
       nomorMeter: meter,
       meterId: 'demo-meter-$nomor',
-      ruteKode: 'R-042',
+      ruteKode: ruteKode,
       urutan: urutan,
       noUrutRute: urutan,
       standLalu: standLalu,
@@ -544,6 +545,7 @@ class DemoRuteRepository implements RuteRepository {
         1755,
         25,
       ),
+      // Rute kedua (R-043) — untuk menguji alur multi-rute (pengelompokan).
       p(
         6,
         '00000100639',
@@ -552,6 +554,7 @@ class DemoRuteRepository implements RuteRepository {
         'WM-88205',
         990,
         15,
+        ruteKode: 'R-043',
       ),
       p(
         7,
@@ -561,6 +564,7 @@ class DemoRuteRepository implements RuteRepository {
         'WM-88218',
         3120,
         31,
+        ruteKode: 'R-043',
       ),
       p(
         8,
@@ -570,6 +574,7 @@ class DemoRuteRepository implements RuteRepository {
         'WM-88229',
         640,
         9,
+        ruteKode: 'R-043',
       ),
     ];
   }
@@ -577,9 +582,23 @@ class DemoRuteRepository implements RuteRepository {
   @override
   Future<RuteSaya> ruteSaya({bool segarkan = true}) async {
     await Future<void>.delayed(const Duration(milliseconds: 450));
+    RuteRingkas ringkas(String id, String kode, int urutan) {
+      final baris = _rute.where((p) => p.ruteKode == kode);
+      return RuteRingkas(
+        id: id,
+        kode: kode,
+        seksiCater: 'Seksi Cater Bandung Utara',
+        urutan: urutan,
+        target: baris.length,
+        terbaca: baris.where((p) => p.sudahDicatat).length,
+      );
+    }
+
     return RuteSaya(
-      // Rute demo yang "ditugaskan" ke akun ini (di app nyata: dari admin).
+      // Dua rute demo yang "ditugaskan" ke akun ini (di app nyata: dari admin
+      // lewat halaman Pemetaan Rute).
       ruteKode: 'R-042',
+      rutes: [ringkas('demo-r042', 'R-042', 0), ringkas('demo-r043', 'R-043', 1)],
       seksiCater: 'Seksi Cater Bandung Utara',
       periode: periodeCatatSekarang(),
       target: _rute.length,

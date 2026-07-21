@@ -206,32 +206,46 @@ Semua di bawah `/api/v1`, semua respons memakai envelope §3.
 
 **Rute Baca Meter (RBM) petugas — paket unduhan rute**
 - `GET /laporan-harian/rute-saya?periode=` — rute yang ditugaskan ke akun
-  token (alur: User → `Pencatat.userId` → `Pencatat.ruteId`, diatur admin
-  di dashboard web lewat `PATCH /pencatat/:id`). `periode` opsional,
-  default bulan kalender berjalan. Respons:
+  token (alur: User → `Pencatat.userId` → **`PenugasanRute`**, dipetakan admin
+  di dashboard web di halaman **Pemetaan Rute**). Satu pencatat bisa memegang
+  **banyak rute** (berurut); `pelanggan` adalah daftar DATAR lintas semua rute,
+  sudah terurut (urutan rute kerja → `noUrutRute` dalam rute). `periode`
+  opsional, default bulan kalender berjalan. Respons:
   ```json
   { "pencatat": { "id": "…", "namaLapangan": "IWAN" },
     "rute": { "id": "…", "kode": "KC201",
               "seksiCater": { "kode": "SC-01", "nama": "Seksi Cater …" } },
+    "rutes": [ { "id": "…", "kode": "KC201",
+                 "seksiCater": { "kode": "SC-01", "nama": "…" },
+                 "urutan": 0, "target": 42, "terbaca": 17 } ],
     "periode": 202607, "target": 42, "terbaca": 17, "dicatatSaya": 20,
     "pelanggan": [ {
       "pelangganId": "…", "nomorLangganan": "00408700794",
       "nama": "…", "alamat": "…", "rt": "006", "rw": "002",
       "status": "AKTIF", "notelp": null, "geoLat": null, "geoLong": null,
-      "golonganTarif": "2A2", "urutan": 1, "noUrutRute": 1,
+      "golonganTarif": "2A2", "ruteId": "…", "ruteKode": "KC201",
+      "urutan": 1, "noUrutRute": 1,
       "meterId": "…", "nomorMeter": "042221",
       "standLalu": 10, "pemakaianLalu": 5,
+      "beaBeban": 7000, "beaAdmin": 10000,
       "riwayat": [ { "periode": 202606, "standLalu": 5, "standAkhir": 10,
                      "pemakaianM3": 5 } ],
       "sudahDicatat": false, "laporan": null } ] }
   ```
-  `target` = jumlah pelanggan rute (target pencatatan periode itu);
-  daftar TERURUT `noUrutRute` (urutan kunjungan RBM; null jatuh ke
-  belakang, `urutan` = fallback posisi); `standLalu`/`pemakaianLalu` dari
+  `rutes` = semua rute yang ditugaskan (urut kerja) dengan target/terbaca
+  per rute; `rute` (tunggal, rute pertama) HANYA untuk kompatibilitas klien
+  lama — klien baru pakai `rutes` + `pelanggan[].ruteKode` untuk mengelompokkan
+  daftar per rute. `target` = TOTAL pelanggan lintas rute; daftar `pelanggan`
+  TERURUT (urutan rute → `noUrutRute`; `urutan` = fallback posisi);
+  `standLalu`/`pemakaianLalu` dari
   PembacaanMeter resmi terakhir (prefill form catat + dasar peringatan
   deviasi); `riwayat` = maks 3 pembacaan resmi terakhir, terbaru dulu —
   bahan menjawab pelanggan yang menanyakan riwayat pemakaiannya di tempat;
   `sudahDicatat`+`laporan` dari LaporanHarianPetugas periode tsb.
+  `beaBeban`/`beaAdmin` = komponen tetap tagihan RESMI terakhir pelanggan
+  (null bila belum pernah ditagih) — ditambahkan ke estimasi uang air
+  progresif di layar catat untuk estimasi total (tetap ESTIMASI; angka resmi
+  dihitung server saat closing).
   `rute.seksiCater` = konteks wilayah untuk header; `dicatatSaya` = jumlah
   laporan yang dicatat akun ini pada periode (lintas rute) — angka "hasil
   kerja saya" di beranda. `rute: null` = akun belum ditugaskan rute
@@ -434,6 +448,31 @@ terikat userId token); sumber kartu biodata beranda app publik:
     "periodes": [202605] }
   ```
 - Status tagihan: `BELUM_BAYAR | SUDAH_BAYAR | JATUH_TEMPO | DIHAPUSKAN`.
+
+**Master tarif (estimasi offline)**
+- `GET /tarif?pageSize=100&hanyaAktif=true` — golongan tarif + `blokTarif`
+  (`{ blok, batasAwalM3, batasAkhirM3, hargaPerM3 }`) untuk estimasi uang air
+  progresif di layar catat. **`hanyaAktif=true` WAJIB dari mobile**: tanpa itu
+  respons memuat blok generasi lama (nomor blok ganda saat tarif pernah naik)
+  dan estimasi salah hitung. Cache lokal; angka resmi tetap dihitung server.
+
+**Notifikasi & perangkat push (petugas)**
+- `POST /api/v1/perangkat/token` — `{ token, platform: "android"|"ios"|"web" }`
+  (STAFF_UP). Daftarkan token FCM perangkat; upsert by token (satu baris per
+  perangkat). Dipanggil aplikasi setelah login & pemulihan sesi.
+- `DELETE /api/v1/perangkat/token` — `{ token }`. Lepas token milik sendiri
+  (dipanggil saat logout, SEBELUM Bearer dibuang).
+- `GET /api/v1/notifikasi?belumDibaca=&page=&pageSize=` — inbox in-app; meta
+  memuat `belumDibaca`. Terikat akun token (tanpa requireRole). Item:
+  `{ id, judul, isi, tipe, data, dibacaAt, createdAt }` (`data` = JSON string
+  tautan dalam-app, mis. `{ "tipe":"pengaduan","id":"…" }`).
+- `PATCH /api/v1/notifikasi/:id/baca` — tandai satu dibaca (milik sendiri).
+- `POST /api/v1/notifikasi/baca-semua` — tandai semua dibaca.
+- Server menulis notifikasi otomatis saat admin menugaskan rute
+  (`PATCH /pencatat/:id`), menugaskan/mengeskalasi tiket pengaduan. Inbox
+  BERFUNGSI walau FCM belum aktif (server memakai adapter NotifierLog →
+  NotifierFcm; lihat `server/modules/notifikasi/`). Push nyata butuh
+  `google-services.json` (mobile) + env `FCM_SERVICE_ACCOUNT` (server).
 
 **Wilayah / geo**
 - `GET /wilayah/lookup?lat=&lng=` — reverse lookup titik GPS → wilayah.

@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/glass_panel.dart';
 
 /// Kerangka halaman ruang kerja petugas gaya macOS: latar premium,
@@ -109,6 +110,84 @@ class WorkspaceSection extends StatelessWidget {
             ),
           ),
           ?aksi,
+        ],
+      ),
+    );
+  }
+}
+
+/// Indikator penyimpanan antrean — padanan bar "sisa memori" dashboard
+/// Aurora, difokuskan ulang ke risiko lapangan yang sebenarnya: berapa
+/// banyak hasil catat (dengan foto bukti) menumpuk BELUM terunggah dan
+/// berapa besar berkasnya di perangkat. Aurora memperingatkan saat catat
+/// belum-upload melewati 500; ambang yang sama dipakai di sini.
+class IndikatorPenyimpanan extends StatelessWidget {
+  const IndikatorPenyimpanan({
+    super.key,
+    required this.jumlahAntrean,
+    required this.totalByteFoto,
+  });
+
+  /// Jumlah laporan di antrean offline (belum terunggah).
+  final int jumlahAntrean;
+
+  /// Total ukuran foto bukti yang masih tersimpan lokal (byte).
+  final int totalByteFoto;
+
+  static const _ambangPerhatian = 400;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final aman = jumlahAntrean == 0;
+    final perhatian = jumlahAntrean >= _ambangPerhatian;
+    final warna = perhatian
+        ? theme.colorScheme.destructive
+        : aman
+        ? const Color(AppStatusColors.successLight)
+        : theme.colorScheme.foreground;
+    final judul = aman
+        ? 'Penyimpanan aman'
+        : perhatian
+        ? 'Segera upload — antrean menumpuk'
+        : 'Antrean menunggu upload';
+    final rincian = aman
+        ? 'Tidak ada hasil catat yang menunggu diunggah.'
+        : '$jumlahAntrean laporan · ${formatUkuranByte(totalByteFoto)} foto '
+              'bukti tersimpan di perangkat.';
+    return GlassPanel(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Icon(
+            aman
+                ? CupertinoIcons.checkmark_seal_fill
+                : perhatian
+                ? CupertinoIcons.exclamationmark_triangle_fill
+                : CupertinoIcons.tray_full_fill,
+            size: 22,
+            color: warna,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  judul,
+                  style: theme.textTheme.small.copyWith(
+                    fontSize: 13,
+                    color: warna,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  rincian,
+                  style: theme.textTheme.muted.copyWith(fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

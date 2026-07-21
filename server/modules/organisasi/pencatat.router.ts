@@ -1,5 +1,10 @@
 // server/modules/organisasi/pencatat.router.ts — jembatan nama petugas
 // lapangan (kd_petugas di CSV legacy) <-> akun User sistem.
+//
+// Penugasan Rute Baca Meter TIDAK lagi di sini (dulu kolom tunggal
+// `Pencatat.ruteId`) — kini many-to-many berurut lewat modul penugasan-rute
+// (/api/v1/penugasan-rute) + halaman Pemetaan Rute dashboard. Notifikasi
+// "rute baru ditugaskan" dipicu di POST /penugasan-rute.
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { createCrudRouter } from "../../lib/crud-factory"
@@ -11,9 +16,6 @@ const createSchema = z.object({
   nip: z.string().trim().min(1).max(30).optional(),
   aliasLain: z.string().max(1000).optional(),
   userId: z.string().min(1).optional(),
-  /// Penugasan Rute Baca Meter — null = tarik penugasan. Dibaca aplikasi
-  /// mobile petugas lewat GET /laporan-harian/rute-saya.
-  ruteId: z.string().min(1).nullable().optional(),
   isAktif: z.boolean().optional(),
 })
 
@@ -28,7 +30,7 @@ export const pencatatRouter = createCrudRouter({
   orderBy: { namaLapangan: "asc" },
   include: {
     user: { select: { id: true, name: true, email: true, role: true } },
-    rute: { select: { id: true, kode: true } },
+    _count: { select: { penugasanRute: true } },
   },
   read: ROLE_GROUPS.STAFF_UP,
   write: ROLE_GROUPS.SUPERVISOR_UP,

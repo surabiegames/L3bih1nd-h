@@ -54,6 +54,10 @@ export interface CrudConfig<TCreate extends ZodType, TUpdate extends ZodType> {
   read: readonly Role[]
   write: readonly Role[]
   include?: AnyRecord
+  /** Efek samping best-effort setelah PATCH berhasil (mis. kirim notifikasi).
+   *  Menerima baris SEBELUM & SESUDAH update; dijalankan di luar transaksi dan
+   *  dibungkus try/catch agar kegagalannya tidak menggagalkan respons. */
+  onAfterUpdate?: (args: { existing: AnyRecord; updated: AnyRecord }) => Promise<void> | void
 }
 
 export function createCrudRouter<TCreate extends ZodType, TUpdate extends ZodType>(config: CrudConfig<TCreate, TUpdate>) {
@@ -92,6 +96,13 @@ export function createCrudRouter<TCreate extends ZodType, TUpdate extends ZodTyp
     const existing = await delegate.findUnique({ where: { id } })
     if (!existing) throw new NotFoundError(entitas)
     const row = await delegate.update({ where: { id }, data: c.req.valid("json"), include })
+    if (config.onAfterUpdate) {
+      try {
+        await config.onAfterUpdate({ existing, updated: row })
+      } catch (e) {
+        console.error(`[crud:${entitas}] onAfterUpdate gagal:`, e)
+      }
+    }
     return ok(c, row)
   })
 

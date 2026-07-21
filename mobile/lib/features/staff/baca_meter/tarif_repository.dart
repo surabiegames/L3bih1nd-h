@@ -111,7 +111,10 @@ class TarifRepository {
       try {
         final hasil = await _api.getList(
           '${ApiConfig.v1Path}/tarif',
-          query: {'pageSize': 100},
+          // hanyaAktif: hanya blok tarif yang berlaku sekarang — tanpa ini
+          // golongan yang pernah ganti tarif membawa blok generasi lama
+          // (nomor blok ganda) dan estimasi progresif salah hitung.
+          query: {'pageSize': 100, 'hanyaAktif': true},
           parseRow: TarifGolonganMobile.fromJson,
         );
         final peta = {for (final t in hasil.rows) t.kodeAsli: t};

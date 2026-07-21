@@ -1,14 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart' show CircularProgressIndicator;
 import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import '../../../core/services/notifikasi_service.dart';
 import '../../../core/theme/master_palette.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/glass_panel.dart';
 import '../../../core/widgets/squircle_icon.dart';
-import '../../public/cek_tagihan/cek_tagihan_screen.dart';
+import '../info_tagihan/info_tagihan_screen.dart';
+import '../notifikasi/notifikasi_screen.dart';
 import '../baca_meter/antrean_upload_screen.dart';
 import '../baca_meter/catat_meter_screen.dart';
 import '../baca_meter/daftar_pelanggan_screen.dart';
@@ -35,6 +39,8 @@ class _PencatatHomeScreenState extends State<PencatatHomeScreen> {
 
   RuteSaya? _paket;
   int _tertunda = 0;
+  int _byteFoto = 0;
+  int _notifBelumDibaca = 0;
 
   @override
   void initState() {
@@ -46,12 +52,36 @@ class _PencatatHomeScreenState extends State<PencatatHomeScreen> {
     final hasil = await Future.wait<Object?>([
       _rute.ruteSaya().then<Object?>((v) => v).catchError((_) => null),
       _rute.jumlahTertunda().then<Object?>((v) => v).catchError((_) => 0),
+      _rute
+          .daftarTertunda()
+          .then<Object?>((v) => v)
+          .catchError((_) => const <CatatTertunda>[]),
+      NotifikasiService.instance
+          .jumlahBelumDibaca()
+          .then<Object?>((v) => v)
+          .catchError((_) => 0),
     ]);
     if (!mounted) return;
+    final antrean = (hasil[2] as List?)?.cast<CatatTertunda>() ?? const [];
     setState(() {
       _paket = hasil[0] as RuteSaya?;
       _tertunda = hasil[1] as int? ?? 0;
+      _byteFoto = _hitungByteFoto(antrean);
+      _notifBelumDibaca = hasil[3] as int? ?? 0;
     });
+  }
+
+  /// Total ukuran foto bukti yang masih tersimpan lokal di seluruh antrean
+  /// (berkas hilang/terhapus diabaikan). Murni lokal, tanpa paket native.
+  static int _hitungByteFoto(List<CatatTertunda> antrean) {
+    var total = 0;
+    for (final entri in antrean) {
+      for (final path in entri.fotoPaths.values) {
+        final berkas = File(path);
+        if (berkas.existsSync()) total += berkas.lengthSync();
+      }
+    }
+    return total;
   }
 
   Future<void> _buka(Widget Function() tujuan) async {
@@ -80,6 +110,10 @@ class _PencatatHomeScreenState extends State<PencatatHomeScreen> {
       children: [
         // ── Chart progres target rute (pusat layar)
         _KartuTargetRute(paket: paket, tertunda: _tertunda),
+        const SizedBox(height: 10),
+
+        // ── Indikator penyimpanan antrean (padanan bar memori Aurora)
+        IndikatorPenyimpanan(jumlahAntrean: _tertunda, totalByteFoto: _byteFoto),
         const SizedBox(height: 4),
 
         // ── Aplikasi (Launchpad). Padanan menu Aurora: Daftar Pelanggan ·
@@ -149,11 +183,21 @@ class _PencatatHomeScreenState extends State<PencatatHomeScreen> {
                         Color(MasterPalette.sky300),
                         Color(MasterPalette.sky700),
                       ],
-                      onTap: () => _buka(() => const CekTagihanScreen()),
+                      onTap: () => _buka(() => const InfoTagihanScreen()),
                     ),
                   ),
-                  // Kolom kosong menjaga ikon sejajar grid dengan baris atas.
-                  const Expanded(child: SizedBox()),
+                  Expanded(
+                    child: LaunchpadItem(
+                      ikon: CupertinoIcons.bell_fill,
+                      label: 'Notifikasi',
+                      gradasi: const [
+                        Color(MasterPalette.teal),
+                        Color(MasterPalette.sky700),
+                      ],
+                      badge: _notifBelumDibaca > 0 ? '$_notifBelumDibaca' : null,
+                      onTap: () => _buka(() => const NotifikasiScreen()),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -346,7 +390,7 @@ class _KartuTargetRute extends StatelessWidget {
                   borderRadius: BorderRadius.circular(7),
                 ),
                 child: Text(
-                  p.ruteKode!,
+                  p.rutes.length > 1 ? '${p.rutes.length} rute' : p.ruteKode!,
                   style: const TextStyle(
                     color: Color(0xFFFFFFFF),
                     fontSize: 12.5,
@@ -360,7 +404,9 @@ class _KartuTargetRute extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      p.seksiCater ?? 'Rute pencatatan Anda',
+                      p.rutes.length > 1
+                          ? '${p.rutes.length} rute · ${p.target} SL'
+                          : (p.seksiCater ?? 'Rute pencatatan Anda'),
                       style: theme.textTheme.small.copyWith(fontSize: 13),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

@@ -55,6 +55,8 @@ class PelangganRute {
     this.golonganTarif,
     this.geoLat,
     this.geoLong,
+    this.beaBeban,
+    this.beaAdmin,
     this.riwayat = const [],
     this.sudahDicatat = false,
     this.laporan,
@@ -97,6 +99,12 @@ class PelangganRute {
   final double? geoLat;
   final double? geoLong;
 
+  /// Komponen tetap tagihan terakhir (Rupiah): beban & administrasi. null =
+  /// pelanggan belum pernah ditagih → estimasi jatuh ke uang air saja.
+  /// Ditambahkan ke estimasi uang air progresif di layar catat.
+  final int? beaBeban;
+  final int? beaAdmin;
+
   /// Maks. 3 pembacaan resmi terakhir, terbaru dulu.
   final List<RiwayatBacaan> riwayat;
 
@@ -124,6 +132,8 @@ class PelangganRute {
     golonganTarif: golonganTarif,
     geoLat: geoLat,
     geoLong: geoLong,
+    beaBeban: beaBeban,
+    beaAdmin: beaAdmin,
     riwayat: riwayat,
     sudahDicatat: sudahDicatat ?? this.sudahDicatat,
     laporan: laporan,
@@ -139,7 +149,9 @@ class PelangganRute {
     alamat: json['alamat'] as String?,
     nomorMeter: json['nomorMeter'] as String?,
     meterId: json['meterId'] as String?,
-    ruteKode: ruteKode ?? json['ruteKode'] as String?,
+    // Per-baris `ruteKode` (rute-saya multi-rute) menang; fallback ke param
+    // untuk kompatibilitas paket lama satu-rute.
+    ruteKode: json['ruteKode'] as String? ?? ruteKode,
     urutan: (json['urutan'] as num?)?.toInt(),
     noUrutRute: (json['noUrutRute'] as num?)?.toInt(),
     standLalu: (json['standLalu'] as num?)?.toInt(),
@@ -149,6 +161,8 @@ class PelangganRute {
     golonganTarif: json['golonganTarif'] as String?,
     geoLat: (json['geoLat'] as num?)?.toDouble(),
     geoLong: (json['geoLong'] as num?)?.toDouble(),
+    beaBeban: (json['beaBeban'] as num?)?.toInt(),
+    beaAdmin: (json['beaAdmin'] as num?)?.toInt(),
     riwayat: (json['riwayat'] as List? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map(RiwayatBacaan.fromJson)
@@ -176,14 +190,61 @@ class PelangganRute {
     'golonganTarif': golonganTarif,
     'geoLat': geoLat,
     'geoLong': geoLong,
+    'beaBeban': beaBeban,
+    'beaAdmin': beaAdmin,
     'riwayat': [for (final r in riwayat) r.toJson()],
     'sudahDicatat': sudahDicatat,
     'laporan': laporan,
   };
 }
 
+/// Ringkasan satu rute dalam beban kerja pencatat (rute-saya multi-rute).
+class RuteRingkas {
+  const RuteRingkas({
+    required this.id,
+    required this.kode,
+    this.seksiCater,
+    this.urutan = 0,
+    this.target = 0,
+    this.terbaca = 0,
+  });
+
+  final String id;
+  final String kode;
+  final String? seksiCater;
+  final int urutan;
+  final int target;
+  final int terbaca;
+
+  factory RuteRingkas.fromJson(Map<String, dynamic> json) {
+    final seksi = json['seksiCater'];
+    return RuteRingkas(
+      id: json['id'] as String? ?? '',
+      kode: json['kode'] as String? ?? '',
+      seksiCater: seksi is Map ? seksi['nama'] as String? : null,
+      urutan: (json['urutan'] as num?)?.toInt() ?? 0,
+      target: (json['target'] as num?)?.toInt() ?? 0,
+      terbaca: (json['terbaca'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'kode': kode,
+    if (seksiCater != null) 'seksiCater': {'nama': seksiCater},
+    'urutan': urutan,
+    'target': target,
+    'terbaca': terbaca,
+  };
+}
+
 /// Paket rute petugas: identitas rute + target periode + daftar pelanggan.
 /// Ini yang diunduh dari server dan di-cache di perangkat.
+///
+/// Sejak pemetaan rute many-to-many, satu pencatat bisa memegang BANYAK rute
+/// ([rutes], urut kerja). [pelanggan] adalah daftar DATAR lintas semua rute,
+/// sudah terurut (urutan rute, lalu noUrutRute). [ruteKode]/[seksiCater]
+/// tunggal dipertahankan (rute pertama) untuk kompatibilitas.
 class RuteSaya {
   const RuteSaya({
     required this.ruteKode,
@@ -191,6 +252,7 @@ class RuteSaya {
     required this.target,
     required this.terbaca,
     required this.pelanggan,
+    this.rutes = const [],
     this.seksiCater,
     this.dicatatSaya = 0,
     this.namaPencatat,
@@ -202,7 +264,10 @@ class RuteSaya {
   /// null = akun belum ditugaskan rute (bukan error).
   final String? ruteKode;
 
-  /// Nama seksi cater rute ini (dari server) — konteks wilayah di header.
+  /// Semua rute yang ditugaskan (urut kerja). Kosong = belum ditugaskan.
+  final List<RuteRingkas> rutes;
+
+  /// Nama seksi cater rute PERTAMA (dari server) — konteks wilayah di header.
   final String? seksiCater;
   final int periode;
 
@@ -232,17 +297,31 @@ class RuteSaya {
     bool dariCache = false,
     int? periodeFallback,
   }) {
-    final rute = json['rute'];
-    final kode = rute is Map ? rute['kode'] as String? : null;
-    final seksi = rute is Map ? rute['seksiCater'] : null;
+    // Daftar rute (multi). Fallback ke `rute` tunggal (paket lama) supaya
+    // cache/lama tetap terbaca.
+    final rutes = (json['rutes'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(RuteRingkas.fromJson)
+        .toList();
+    final ruteTunggal = json['rute'];
+    final kode = rutes.isNotEmpty
+        ? rutes.first.kode
+        : (ruteTunggal is Map ? ruteTunggal['kode'] as String? : null);
+    final seksi = rutes.isNotEmpty
+        ? rutes.first.seksiCater
+        : (ruteTunggal is Map && ruteTunggal['seksiCater'] is Map
+              ? (ruteTunggal['seksiCater'] as Map)['nama'] as String?
+              : null);
     final pencatat = json['pencatat'];
+    // Per-baris ruteKode dari server menang; param cuma fallback paket lama.
     final rows = (json['pelanggan'] as List? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map((row) => PelangganRute.fromJson(row, ruteKode: kode))
         .toList();
     return RuteSaya(
       ruteKode: kode,
-      seksiCater: seksi is Map ? seksi['nama'] as String? : null,
+      rutes: rutes,
+      seksiCater: seksi,
       periode: (json['periode'] as num?)?.toInt() ?? periodeFallback ?? 0,
       target: (json['target'] as num?)?.toInt() ?? rows.length,
       terbaca:
@@ -266,6 +345,7 @@ class RuteSaya {
             'kode': ruteKode,
             if (seksiCater != null) 'seksiCater': {'nama': seksiCater},
           },
+    'rutes': [for (final r in rutes) r.toJson()],
     'pencatat': namaPencatat == null && pencatatId == null
         ? null
         : {'namaLapangan': namaPencatat, 'id': pencatatId},
@@ -278,6 +358,7 @@ class RuteSaya {
 
   RuteSaya salinDenganPelanggan(List<PelangganRute> rows) => RuteSaya(
     ruteKode: ruteKode,
+    rutes: rutes,
     seksiCater: seksiCater,
     periode: periode,
     target: target,

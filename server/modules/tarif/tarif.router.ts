@@ -17,7 +17,16 @@ import { createTarifGolonganSchema, updateTarifGolonganSchema, createTarifBlokSc
 
 export const tarifRouter = new Hono()
 
-const listQuerySchema = paginationQuerySchema.extend({ ...sortQuery(["kode", "kodeAsli", "nama", "kategori", "isActive"]), q: z.string().trim().min(1).optional() })
+const listQuerySchema = paginationQuerySchema.extend({
+  ...sortQuery(["kode", "kodeAsli", "nama", "kategori", "isActive"]),
+  q: z.string().trim().min(1).optional(),
+  // hanyaAktif=true: hanya blok tarif yang BERLAKU saat ini (berlakuMulai
+  // <= now && (berlakuSampai null || > now)). Dipakai aplikasi mobile untuk
+  // estimasi progresif — tanpa ini, golongan yang pernah ganti tarif membawa
+  // blok generasi lama (nomor blok ganda) dan estimasi salah hitung. Dashboard
+  // web tetap default menerima seluruh histori (audit/penagihan ulang).
+  hanyaAktif: z.coerce.boolean().optional(),
+})
 
 tarifRouter.get("/", requireRole(...ROLE_GROUPS.STAFF_UP), validate("query", listQuerySchema), async (c) => {
   const query = c.req.valid("query")
@@ -25,13 +34,17 @@ tarifRouter.get("/", requireRole(...ROLE_GROUPS.STAFF_UP), validate("query", lis
   const where = query.q
     ? { OR: [{ nama: { contains: query.q, mode: "insensitive" as const } }, { kodeAsli: { contains: query.q, mode: "insensitive" as const } }] }
     : {}
+  const now = new Date()
+  const blokWhere = query.hanyaAktif
+    ? { berlakuMulai: { lte: now }, OR: [{ berlakuSampai: null }, { berlakuSampai: { gt: now } }] }
+    : undefined
   const [data, total] = await Promise.all([
     prisma.tarifGolongan.findMany({
       where,
       skip,
       take,
       orderBy: buildOrderBy(query, { kode: "asc" }),
-      include: { blokTarif: { orderBy: { blok: "asc" } } },
+      include: { blokTarif: { where: blokWhere, orderBy: { blok: "asc" } } },
     }),
     prisma.tarifGolongan.count({ where }),
   ])

@@ -72,20 +72,39 @@ model Pencatat {
   isAktif        Boolean                @default(true)
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
-  /// Rute Baca Meter (RBM) yang sedang dipegang pencatat ini — dasar
-  /// endpoint mobile `GET /laporan-harian/rute-saya`. Nullable: pencatat
-  /// lama/nonaktif boleh tanpa rute; penugasan diatur dari dashboard web
-  /// (PATCH /pencatat/:id). SENGAJA bukan @unique — satu rute boleh
-  /// dipegang lebih dari satu pencatat (pembagian beban / pengganti cuti).
-  ruteId         String?
   laporanHarian  LaporanHarianPetugas[]
   pembacaanMeter PembacaanMeter[]
-  rute           Rute?                  @relation(fields: [ruteId], references: [id])
+  /// Rute Baca Meter (RBM) yang dipegang pencatat ini — many-to-many berurut
+  /// lewat PenugasanRute (satu pencatat banyak rute; satu rute boleh dibagi
+  /// >1 pencatat untuk pembagian beban/pengganti cuti). Diatur di dashboard
+  /// web (halaman Pemetaan Rute) dan dibaca mobile `GET /laporan-harian/rute-saya`.
+  /// Menggantikan kolom `ruteId` tunggal yang lama.
+  penugasanRute  PenugasanRute[]
   user           User?                  @relation(fields: [userId], references: [id])
 
   @@index([namaLapangan])
-  @@index([ruteId])
   @@map("pencatat")
+}
+
+/// Penugasan Rute Baca Meter ke pencatat — join many-to-many BERURUT.
+/// `urutan` = posisi rute dalam beban kerja pencatat (rute mana dikerjakan
+/// lebih dulu). Bersifat PERMANEN: berlaku otomatis tiap periode tanpa admin
+/// mengatur ulang, kecuali penugasannya diubah. Satu rute boleh punya lebih
+/// dari satu baris (dibagi ke beberapa pencatat).
+model PenugasanRute {
+  id         String   @id @default(cuid())
+  pencatatId String
+  ruteId     String
+  urutan     Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  pencatat   Pencatat @relation(fields: [pencatatId], references: [id], onDelete: Cascade)
+  rute       Rute     @relation(fields: [ruteId], references: [id], onDelete: Cascade)
+
+  @@unique([pencatatId, ruteId])
+  @@index([pencatatId, urutan])
+  @@index([ruteId])
+  @@map("penugasan_rute")
 }
 
 /// Target kinerja bulanan/tahunan per wilayah distribusi & seksi catat —

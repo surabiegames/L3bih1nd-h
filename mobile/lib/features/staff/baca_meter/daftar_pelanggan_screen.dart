@@ -99,6 +99,24 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
         .toList();
   }
 
+  /// Item daftar. Saat petugas memegang >1 rute, sisipkan header nama rute
+  /// (String) di antara kelompok; jika hanya satu rute, daftar tetap datar.
+  /// Pelanggan sudah terurut (urutan rute lalu noUrutRute) dari server.
+  List<Object> get _itemDaftar {
+    final list = _tersaring;
+    if ((_paket?.rutes.length ?? 0) <= 1) return List<Object>.from(list);
+    final hasil = <Object>[];
+    String? ruteKini;
+    for (final p in list) {
+      if (p.ruteKode != ruteKini) {
+        ruteKini = p.ruteKode;
+        hasil.add(ruteKini ?? '—');
+      }
+      hasil.add(p);
+    }
+    return hasil;
+  }
+
   Future<void> _bukaCatat(PelangganRute pelanggan) async {
     // Urutan kunjungan = daftar tab saat ini; navigasi next/prev dan
     // "lanjut ke berikutnya" di layar catat mengikuti urutan jalan ini.
@@ -305,14 +323,44 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
                           style: theme.textTheme.muted,
                         ),
                       )
-                    : ListView.separated(
+                    : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                        itemCount: _tersaring.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, i) => _BarisPelanggan(
-                          pelanggan: _tersaring[i],
-                          onTap: () => _bukaCatat(_tersaring[i]),
-                        ),
+                        itemCount: _itemDaftar.length,
+                        itemBuilder: (context, i) {
+                          final item = _itemDaftar[i];
+                          if (item is String) {
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                top: i == 0 ? 0 : 14,
+                                bottom: 6,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    CupertinoIcons.map,
+                                    size: 13,
+                                    color: theme.colorScheme.mutedForeground,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Rute $item',
+                                    style: theme.textTheme.small.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                          final p = item as PelangganRute;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _BarisPelanggan(
+                              pelanggan: p,
+                              onTap: () => _bukaCatat(p),
+                            ),
+                          );
+                        },
                       ),
             },
           ),
@@ -398,7 +446,9 @@ class _KartuProgres extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  paket.ruteKode ?? 'Rute Anda',
+                  paket.rutes.length > 1
+                      ? '${paket.rutes.length} rute'
+                      : (paket.ruteKode ?? 'Rute Anda'),
                   style: const TextStyle(
                     color: Color(0xFFFFFFFF),
                     fontSize: 11,

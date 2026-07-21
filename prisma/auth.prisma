@@ -35,6 +35,8 @@ model User {
   laporanDiverifikasi LaporanHarianPetugas[] @relation("LaporanVerifikator")
   laporanMandiriVerif LaporanMandiri[]       @relation("LaporanMandiriVerifikator")
   mutasiDiproses      MutasiPelanggan[]      @relation("MutasiProsesOleh")
+  notifikasi          Notifikasi[]
+  perangkatNotif      PerangkatNotif[]
   pelangganDibuat     Pelanggan[]            @relation("PelangganAuthor")
   pelangganDiupdate   Pelanggan[]            @relation("PelangganLastEditor")
   pemutusanDiproses   Pemutusan[]            @relation("PemutusanProsesOleh")
@@ -111,6 +113,46 @@ model TwoFactor {
 
   @@index([userId])
   @@map("two_factor")
+}
+
+/// Token perangkat untuk push notification (FCM). Satu user boleh punya
+/// banyak perangkat (HP + tablet), pola sama dengan Account. Token
+/// didaftarkan aplikasi mobile saat login (POST /api/v1/perangkat/token) dan
+/// dihapus saat logout. `token` unik lintas user: FCM bisa memindahkan token
+/// ke akun lain saat perangkat dipakai bergantian — upsert-by-token menjaga
+/// satu baris per perangkat fisik.
+model PerangkatNotif {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String   @default("android")
+  createdAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("perangkat_notif")
+}
+
+/// Inbox notifikasi in-app per user. Sumber kebenaran notifikasi yang tetap
+/// terlihat walau push FCM belum aktif / gagal sampai — NotifierLog menulis
+/// ke sini, NotifierFcm menulis ke sini SEKALIGUS mengirim push. `data`
+/// menyimpan tautan dalam-app (mis. { "tipe": "pengaduan", "id": "..." })
+/// sebagai JSON string.
+model Notifikasi {
+  id        String    @id @default(cuid())
+  userId    String
+  judul     String
+  isi       String
+  tipe      String    @default("umum")
+  data      String?
+  dibacaAt  DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dibacaAt])
+  @@index([userId, createdAt])
+  @@map("notifikasi")
 }
 
 enum Role {

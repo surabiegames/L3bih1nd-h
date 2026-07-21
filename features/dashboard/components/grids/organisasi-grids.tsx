@@ -4,12 +4,10 @@
 // halaman ber-tab: Divisi → Bagian → Sub-bagian, plus Pencatat (jembatan
 // nama petugas lapangan di CSV ↔ akun User + penugasan Rute Baca Meter
 // yang diunduh aplikasi mobile petugas).
-import * as React from "react"
 import type { ColDef } from "ag-grid-community"
 import { DataGrid } from "../data-grid"
 import { selBool, fmtLabel, KELAS_MONO } from "./sel"
 import { LABEL_ROLE } from "../../lib/label"
-import { PenugasanRuteDialog, type PencatatBaris } from "./penugasan-rute-dialog"
 
 const TINGGI = "h-[480px]"
 
@@ -38,47 +36,29 @@ export function SubBagianGrid() {
 }
 
 export function PencatatGrid() {
-  // Klik baris = buka modal penugasan Rute Baca Meter (kolom
-  // Pencatat.ruteId) — rute inilah yang terunduh di aplikasi mobile
-  // pencatat lewat GET /laporan-harian/rute-saya.
-  const [terpilih, setTerpilih] = React.useState<PencatatBaris | null>(null)
-  const [refreshKey, setRefreshKey] = React.useState(0)
-
+  // Penugasan rute pindah ke halaman khusus /dashboard/pemetaan-rute
+  // (many-to-many berurut). Grid ini kini murni menampilkan pencatat + jumlah
+  // rute yang dipegangnya (Pencatat._count.penugasanRute).
   const kolom: ColDef[] = [
     { field: "namaLapangan", headerName: "Nama Lapangan", minWidth: 150 },
     { field: "namaLengkap", headerName: "Nama Lengkap", minWidth: 180, flex: 2 },
     { field: "nip", headerName: "NIP", minWidth: 130, cellClass: KELAS_MONO },
     { headerName: "Akun Tertaut", minWidth: 160, valueGetter: (p) => p.data?.user?.name ?? p.data?.user?.email ?? "—" },
     {
-      headerName: "Rute RBM",
+      headerName: "Jumlah Rute",
       minWidth: 120,
-      cellClass: KELAS_MONO,
-      valueGetter: (p) => p.data?.rute?.kode ?? "—",
+      maxWidth: 150,
+      valueGetter: (p) => `${p.data?._count?.penugasanRute ?? 0} rute`,
     },
     { field: "isAktif", headerName: "Status", minWidth: 110, maxWidth: 130, cellRenderer: selBool("Aktif", "Non-aktif") },
   ]
   return (
-    <>
-      <DataGrid
-        judul="Pencatat Lapangan — klik baris untuk menugaskan rute"
-        endpoint="/pencatat"
-        columnDefs={kolom}
-        searchParam="q"
-        tinggiClassName={TINGGI}
-        onRowClicked={(data) => setTerpilih(data as unknown as PencatatBaris)}
-        idTerpilih={terpilih?.id}
-        refreshKey={refreshKey}
-      />
-      {terpilih && (
-        <PenugasanRuteDialog
-          pencatat={terpilih}
-          onTutup={() => setTerpilih(null)}
-          onSelesai={() => {
-            setTerpilih(null)
-            setRefreshKey((k) => k + 1)
-          }}
-        />
-      )}
-    </>
+    <DataGrid
+      judul="Pencatat Lapangan — atur penugasan rute di menu Pemetaan Rute"
+      endpoint="/pencatat"
+      columnDefs={kolom}
+      searchParam="q"
+      tinggiClassName={TINGGI}
+    />
   )
 }

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../network/api_client.dart';
 import '../network/api_config.dart';
+import '../services/notifikasi_service.dart';
 
 /// Akun petugas hasil login (subset payload /api/mobile/auth/login §4.1
 /// FLUTTER.md — cukup yang dipakai UI).
@@ -82,6 +84,9 @@ class SesiPetugas {
         );
       }
       ApiClient.instance.setAccessToken(token);
+      // Daftarkan (ulang) token perangkat untuk push — best-effort, tak
+      // memblokir pembukaan aplikasi (no-op tanpa Firebase/demo).
+      unawaited(NotifikasiService.instance.daftarkanPerangkat());
       return true;
     } on Object {
       // Keystore rusak/tak tersedia dianggap belum login — jangan crash
@@ -116,10 +121,14 @@ class SesiPetugas {
       value: data['expiresAt'] as String?,
     );
     await _storage.write(key: _kunciAkun, value: jsonEncode(profil.toJson()));
+    // Daftarkan token perangkat untuk push (best-effort, no-op tanpa Firebase).
+    await NotifikasiService.instance.daftarkanPerangkat();
     return profil;
   }
 
   Future<void> keluar() async {
+    // Lepas token perangkat SELAGI Bearer masih terpasang (best-effort).
+    await NotifikasiService.instance.hapusPerangkat();
     akun = null;
     ApiClient.instance.setAccessToken(null);
     await _storage.delete(key: _kunciToken);

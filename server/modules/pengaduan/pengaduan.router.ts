@@ -31,6 +31,7 @@ import { hitungTargetSla, prioritasAwal, ringkasSla } from "./sla"
 import { transisiPengaduan, catatRiwayat, TRANSISI, TRANSISI_PETUGAS, type Pelaku } from "./alur"
 import { ambilBatasKonfirmasiJam, hitungKonfirmasiBatasAt, sapuTutupOtomatis } from "./otomatis"
 import { tandaiWilayah } from "./wilayah"
+import { getNotifier } from "../notifikasi/notifier"
 
 export const pengaduanRouter = new Hono()
 
@@ -380,6 +381,13 @@ pengaduanRouter.patch("/:id/tugaskan", requireRole(...ROLE_GROUPS.SUPERVISOR_UP)
       isPublik: true,
     })
   )
+  // Beri tahu petugas yang ditugaskan (best-effort; tak menggagalkan aksi).
+  await getNotifier().kirim([ditugaskanKeId], {
+    judul: "Tiket pengaduan baru ditugaskan",
+    isi: `Anda ditugaskan menangani tiket ${row.nomorTiket ?? id}.`,
+    tipe: "pengaduan",
+    data: { tipe: "pengaduan", id },
+  })
   return ok(c, row)
 })
 
@@ -629,6 +637,13 @@ pengaduanRouter.patch("/:id/eskalasi", requireRole(...ROLE_GROUPS.SUPERVISOR_UP)
       isPublik: false,
     })
     return row
+  })
+  // Beri tahu penerima eskalasi (best-effort).
+  await getNotifier().kirim([eskalasiKeId], {
+    judul: "Tiket dieskalasikan kepada Anda",
+    isi: `Tiket ${row.nomorTiket ?? id} dieskalasi: ${alasan}`,
+    tipe: "pengaduan",
+    data: { tipe: "pengaduan", id },
   })
   return ok(c, row)
 })

@@ -190,6 +190,24 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
     return estimasiUangAir(_tarif, pakai);
   }
 
+  /// Komponen tetap tagihan terakhir pelanggan (beban + admin) bila ada —
+  /// dibawa payload rute-saya. null bila pelanggan belum pernah ditagih.
+  int? get _biayaTetap {
+    final b = widget.pelanggan.beaBeban;
+    final a = widget.pelanggan.beaAdmin;
+    if (b == null && a == null) return null;
+    return (b ?? 0) + (a ?? 0);
+  }
+
+  /// Estimasi total = uang air progresif + beban + admin (pola
+  /// calculateTagihan Aurora). null bila uang air tak bisa dihitung; bila
+  /// komponen tetap belum diketahui, sama dengan uang air saja.
+  int? get _estimasiTotal {
+    final air = _estimasiAir;
+    if (air == null) return null;
+    return air + (_biayaTetap ?? 0);
+  }
+
   static const _labelSlot = {
     'stand': 'Stand Meter',
     'segel': 'Segel',
@@ -215,6 +233,8 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
               : 'Foto dikompres + diberi cap waktu dan nama petugas, lalu '
                     'ikut terkirim bersama laporan.',
         ),
+        // Vertikal: label aksi panjang tidak muat berjajar di dialog HP sempit.
+        actionsAxis: Axis.vertical,
         actions: [
           if (sudahAda)
             ShadButton.destructive(
@@ -314,14 +334,15 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
           'OCR membaca stand: $bersih\n'
           'Cocokkan dengan roda angka pada meter sebelum memakai.',
         ),
+        actionsAxis: Axis.vertical,
         actions: [
-          ShadButton.outline(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Abaikan'),
-          ),
           ShadButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Pakai Angka Ini'),
+          ),
+          ShadButton.outline(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Abaikan'),
           ),
         ],
       ),
@@ -356,14 +377,15 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
           'kehadiran di lokasi. Aktifkan GPS lalu coba lagi, atau lanjut '
           'tanpa GPS.',
         ),
+        actionsAxis: Axis.vertical,
         actions: [
-          ShadButton.outline(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Lanjut Tanpa GPS'),
-          ),
           ShadButton(
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Aktifkan Dulu'),
+          ),
+          ShadButton.outline(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Lanjut Tanpa GPS'),
           ),
         ],
       ),
@@ -449,6 +471,8 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
     final standDikirim = akhir ?? lalu; // kelainan tanpa angka: stand tetap
     final jarak = _jarakKePelanggan;
     final estimasi = _estimasiAir;
+    final estimasiTotal = _estimasiTotal;
+    final biayaTetap = _biayaTetap;
     final usulanUrut = int.tryParse(_kontrolUsulanUrut.text);
     final noHpBaru = _kontrolNoHp.text.trim();
     final gantiNoHp = noHpBaru.isNotEmpty && noHpBaru != (p.notelp ?? '');
@@ -468,7 +492,11 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
       if (_kontrolPerubahan.text.trim().isNotEmpty)
         'Usulan perubahan: ${_kontrolPerubahan.text.trim()}',
       'Berkas: ${_fotoPaths.isEmpty ? 'tidak ada' : _fotoPaths.keys.map((j) => _labelSlot[j]).join(', ')}',
-      if (estimasi != null)
+      if (estimasi != null && biayaTetap != null)
+        'Estimasi tagihan: ${formatRupiah(estimasiTotal!)} '
+            '(air ${formatRupiah(estimasi)} + beban & admin '
+            '${formatRupiah(biayaTetap)} — angka resmi dihitung sistem)',
+      if (estimasi != null && biayaTetap == null)
         'Estimasi uang air: ${formatRupiah(estimasi)} '
             '(belum termasuk beban & admin — angka resmi dihitung sistem)',
     ].join('\n');
@@ -478,14 +506,18 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
       builder: (context) => ShadDialog(
         title: const Text('Konfirmasi Hasil Baca'),
         description: Text(ringkasan),
+        // Aksi disusun vertikal: dua tombol berlabel ("Periksa Lagi" +
+        // "Simpan") tidak muat berjajar di lebar dialog HP sempit (~340px)
+        // dan meng-overflow. Vertikal = pola dialog mobile yang aman.
+        actionsAxis: Axis.vertical,
         actions: [
-          ShadButton.outline(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Periksa Lagi'),
-          ),
           ShadButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Simpan'),
+          ),
+          ShadButton.outline(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Periksa Lagi'),
           ),
         ],
       ),
@@ -548,14 +580,15 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
               'Lanjut ke pelanggan berikutnya?\n'
               '${berikut.nama} · ${berikut.nomorLangganan}',
             ),
+            actionsAxis: Axis.vertical,
             actions: [
-              ShadButton.outline(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Kembali ke Daftar'),
-              ),
               ShadButton(
                 onPressed: () => Navigator.of(context).pop(true),
                 child: const Text('Lanjut'),
+              ),
+              ShadButton.outline(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Kembali ke Daftar'),
               ),
             ],
           ),
@@ -599,6 +632,8 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
     final deviasi = _deviasi;
     final jarak = _jarakKePelanggan;
     final estimasi = _estimasiAir;
+    final estimasiTotal = _estimasiTotal;
+    final biayaTetap = _biayaTetap;
 
     return AppScaffold(
       title: 'Catat Meter',
@@ -824,9 +859,14 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
                 if (estimasi != null) ...[
                   const SizedBox(height: 8),
                   Text(
-                    'Estimasi uang air: ${formatRupiah(estimasi)} — belum '
-                    'termasuk beban tetap & admin; angka resmi dihitung '
-                    'sistem saat penagihan.',
+                    biayaTetap != null
+                        ? 'Estimasi tagihan: ${formatRupiah(estimasiTotal!)} '
+                              '(air ${formatRupiah(estimasi)} + beban & admin '
+                              '${formatRupiah(biayaTetap)}) — angka resmi '
+                              'dihitung sistem saat penagihan.'
+                        : 'Estimasi uang air: ${formatRupiah(estimasi)} — belum '
+                              'termasuk beban tetap & admin; angka resmi dihitung '
+                              'sistem saat penagihan.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.muted.copyWith(fontSize: 11),
                   ),

@@ -92,7 +92,7 @@ model Rute {
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
   pelanggan         Pelanggan[]
-  pencatat          Pencatat[]
+  penugasanRute     PenugasanRute[]
   potensiPelanggans PotensiPelanggan[]
   seksiCater        SeksiCater               @relation(fields: [seksiCaterId], references: [id])
 

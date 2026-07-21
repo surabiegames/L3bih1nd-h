@@ -53,12 +53,13 @@ role `USER`/pelanggan): **POST /pengaduan**, **GET /pengaduan/saya**,
 |---|---|---|---|
 | `/me` | session saat ini | login | — |
 | `/divisi`, `/bagian`, `/sub-bagian` | struktur organisasi | STAFF_UP | ADMIN |
-| `/pencatat` | jembatan petugas lapangan ↔ User | STAFF_UP | SUPERVISOR_UP |
+| `/pencatat` | jembatan petugas lapangan ↔ User (+ `_count.penugasanRute`) | STAFF_UP | SUPERVISOR_UP |
+| `/penugasan-rute` | pemetaan rute↔petugas many-to-many berurut (halaman Pemetaan Rute): `?pencatatId=`, `/ringkasan`, `POST`, `DELETE /:id`, `PATCH /urutan` | STAFF_UP | SUPERVISOR_UP |
 | `/target-kinerja` | target bulanan/tahunan | STAFF_UP | MANAGEMENT_UP |
-| `/tarif` | TarifGolongan + `/:id/blok` (tarif progresif) | STAFF_UP | ADMIN |
+| `/tarif` | TarifGolongan + `/:id/blok` (tarif progresif); `?hanyaAktif=true` menyaring blok berlaku saat ini (dipakai estimasi mobile) | STAFF_UP | ADMIN |
 | `/golongan-besar`, `/dma` | referensi | STAFF_UP | ADMIN |
 | `/konfigurasi` | key-value (`isRahasia` disamarkan non-SUPER_ADMIN) | STAFF_UP | ADMIN |
-| `/wilayah-adm` … `/zona`, `/rute` | hierarki wilayah + `area` GeoJSON | STAFF_UP | ADMIN |
+| `/wilayah-adm` … `/zona`, `/rute` | hierarki wilayah + `area` GeoJSON; `/rute/:id/urutan-pelanggan` (PATCH, urutan kunjungan `noUrutRute`) | STAFF_UP | ADMIN (urutan-pelanggan: SUPERVISOR_UP) |
 | `/kecamatan`, `/kelurahan` | wilayah pemerintahan + `area` | STAFF_UP | ADMIN |
 | `/wilayah/lookup?lat&lng` | reverse point-in-polygon | STAFF_UP | — |
 | `/pelanggan` | CRUD, soft delete, `/:id/restore`, `/near` | STAFF_UP | SUPERVISOR_UP (hapus/restore: MANAGEMENT_UP) |
@@ -68,11 +69,13 @@ role `USER`/pelanggan): **POST /pengaduan**, **GET /pengaduan/saya**,
 | `/tagihan-lain` | pungutan non-air insidental | STAFF_UP | SUPERVISOR_UP |
 | `/pembayaran` | ledger + `/:id/konfirmasi` | STAFF_UP | SUPERVISOR_UP |
 | `/pengaduan` | aduan + `/near`, `/statistik`, `/petugas`, `/saya`, `/:id/tugaskan`, `/:id/status`, `/:id/catatan`, `/:id/eskalasi` | STAFF_UP (`/petugas`: SUPERVISOR_UP; `/saya`: ANY login) | create: ANY; catatan: STAFF_UP; tugaskan/status/eskalasi: SUPERVISOR_UP |
-| `/laporan-harian` | + `/rute-saya` (paket RBM petugas token: rute dari `Pencatat.ruteId`, terurut `noUrutRute`, target, stand lalu, riwayat 3 periode, sudahDicatat), `/batch` (sinkronisasi borongan offline, respons per-record TERSIMPAN/DUPLIKAT/GAGAL — pola dev_store_data Aurora), `/foto` (multipart bukti stand/segel/rumah/video → URL), `/:id/verif1`, `/:id/verif2`, `/:id/verif3`, `/:id/reject`, `/:id/unverify` | STAFF_UP | STAFF_UP (V1/reject: SUPERVISOR_UP; V2: MANAGEMENT_UP; V3: SENIOR_UP; unverify: mengikuti ring yang dibatalkan). POST //batch mengisi sendiri `pencatatId` (dari akun token), snapshot nama/alamat, dan `jarakMeter` (jarak GPS titik catat ↔ pelanggan, raw SQL ST_DistanceSphere) bila tidak dikirim |
+| `/laporan-harian` | + `/rute-saya` (paket RBM petugas token: rute dari `PenugasanRute` many-to-many berurut → banyak rute per petugas, `rutes[]` + `pelanggan` datar lintas rute terurut, target/terbaca total, stand lalu, riwayat 3 periode, `beaBeban`/`beaAdmin` tagihan terakhir untuk estimasi total, sudahDicatat), `/batch` (sinkronisasi borongan offline, respons per-record TERSIMPAN/DUPLIKAT/GAGAL — pola dev_store_data Aurora), `/foto` (multipart bukti stand/segel/rumah/video → URL), `/:id/verif1`, `/:id/verif2`, `/:id/verif3`, `/:id/reject`, `/:id/unverify` | STAFF_UP | STAFF_UP (V1/reject: SUPERVISOR_UP; V2: MANAGEMENT_UP; V3: SENIOR_UP; unverify: mengikuti ring yang dibatalkan). POST //batch mengisi sendiri `pencatatId` (dari akun token), snapshot nama/alamat, dan `jarakMeter` (jarak GPS titik catat ↔ pelanggan, raw SQL ST_DistanceSphere) bila tidak dikirim |
 | `/laporan-mandiri` | + `/:id/verify`, `/:id/reject`, `/:id/unverify` | STAFF_UP | create: ANY; verify/unverify: STAFF_UP |
 | `/mutasi`, `/pemutusan`, `/potensi` | mutasi/pemutusan/prospek (+geo) | STAFF_UP | SUPERVISOR_UP |
 | `/users` | manajemen akun, `/me`, `/:id/role`, `/:id/status`, `/:id/password` | MANAGEMENT_UP | ADMIN |
 | `/audit-log` | read-only | MANAGEMENT_UP | — (hanya via recordAudit internal) |
+| `/perangkat` | `/token` (POST/DELETE) — token push FCM per perangkat | — | STAFF_UP |
+| `/notifikasi` | inbox in-app + `/:id/baca`, `/baca-semua` (terikat userId sesi) | login | login |
 
 Di luar `/api/v1`: `POST /api/mobile/auth/login` & `POST /api/mobile/auth/google`
 (pintu masuk aplikasi Flutter, tanpa login, rate-limited — lihat bagian

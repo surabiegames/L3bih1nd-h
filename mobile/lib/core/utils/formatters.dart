@@ -49,3 +49,15 @@ String formatWaktuLokal(DateTime d) =>
 
 String formatM3(num m3) =>
     '${NumberFormat.decimalPattern('id_ID').format(m3)} m³';
+
+/// ---- Ukuran berkas ----
+
+/// Ukuran byte ringkas (B/KB/MB) — dipakai indikator penyimpanan antrean
+/// foto yang belum terunggah di beranda petugas.
+String formatUkuranByte(int byte) {
+  if (byte < 1024) return '$byte B';
+  final kb = byte / 1024;
+  if (kb < 1024) return '${kb.toStringAsFixed(kb < 10 ? 1 : 0)} KB';
+  final mb = kb / 1024;
+  return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
+}

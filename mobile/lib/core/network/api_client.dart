@@ -95,9 +95,10 @@ class ApiClient {
 
   Future<T> delete<T>(
     String path, {
+    Object? body,
     required T Function(Object? data) parse,
   }) async {
-    final response = await _send(() => dio.delete<Object?>(path));
+    final response = await _send(() => dio.delete<Object?>(path, data: body));
     return _unwrap(response, parse);
   }
 

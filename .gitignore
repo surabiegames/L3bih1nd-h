@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# env.md = salinan .env berisi rahasia (OAuth/DB) — JANGAN commit.
+env.md
 
 # vercel
 .vercel

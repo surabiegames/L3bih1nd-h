@@ -123,9 +123,11 @@ class _DownloadDataScreenState extends State<DownloadDataScreen> {
         _jumlahTarif = jumlahTarif;
         _mengunduh = false;
         _hasil = paket.ruteKode == null
-            ? 'Akun Anda belum memegang rute — pilih rute dulu lewat menu '
-                  'Pilih Rute, lalu unduh lagi.'
-            : 'Berhasil: ${paket.target} pelanggan rute ${paket.ruteKode}'
+            ? 'Akun Anda belum ditugaskan rute — penugasan diatur admin di '
+                  'dashboard web (menu Pemetaan Rute). Hubungi admin, lalu '
+                  'unduh lagi.'
+            : 'Berhasil: ${paket.target} pelanggan '
+                  '${paket.rutes.length > 1 ? '(${paket.rutes.length} rute)' : 'rute ${paket.ruteKode}'}'
                   '${jumlahTarif > 0 ? ' + $jumlahTarif golongan tarif' : ''} '
                   'siap dipakai offline.';
       });

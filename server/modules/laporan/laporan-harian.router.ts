@@ -147,7 +147,13 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
   const pencatat = await prisma.pencatat.findUnique({
     where: { userId: user.id },
     include: {
-      rute: { select: { id: true, kode: true, seksiCater: { select: { kode: true, nama: true } } } },
+      // Rute yang dipetakan admin (many-to-many BERURUT lewat PenugasanRute,
+      // halaman Pemetaan Rute). Satu pencatat bisa memegang banyak rute;
+      // urutannya menentukan urutan kerja di lapangan.
+      penugasanRute: {
+        orderBy: { urutan: "asc" },
+        include: { rute: { select: { id: true, kode: true, seksiCater: { select: { kode: true, nama: true } } } } },
+      },
     },
   })
   if (!pencatat || !pencatat.isAktif) {
@@ -163,14 +169,15 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
     where: { periode, pencatatId: pencatat.id },
   })
 
-  // Belum ditugaskan rute = bukan error: rute dipetakan admin ke tiap
-  // pencatat (Pencatat.ruteId, via PATCH /pencatat/:id dari dashboard web),
-  // jadi aplikasi menampilkan keadaan "belum ditugaskan — hubungi admin",
-  // bukan layar gagal.
-  if (!pencatat.rute) {
+  // Belum ditugaskan rute = bukan error: rute dipetakan admin di halaman
+  // Pemetaan Rute dashboard (PenugasanRute). Aplikasi menampilkan keadaan
+  // "belum ditugaskan — hubungi admin", bukan layar gagal.
+  const penugasan = pencatat.penugasanRute
+  if (penugasan.length === 0) {
     return ok(c, {
       pencatat: { id: pencatat.id, namaLapangan: pencatat.namaLapangan },
       rute: null,
+      rutes: [],
       periode,
       target: 0,
       terbaca: 0,
@@ -179,14 +186,18 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
     })
   }
 
+  const ruteIds = penugasan.map((pg) => pg.ruteId)
+  // Peta rute → { kode, seksiCater, urutan kerja } untuk memberi label per
+  // baris pelanggan dan mengurutkan lintas rute.
+  const ruteInfo = new Map(penugasan.map((pg) => [pg.ruteId, { kode: pg.rute.kode, seksiCater: pg.rute.seksiCater, urutan: pg.urutan }]))
+
   const pelanggan = await prisma.pelanggan.findMany({
     // CABUT_PERMANEN tidak dikunjungi lagi; status lain (DISEGEL,
     // TUTUP_SEMENTARA) tetap masuk buku rute — petugas tetap lewat dan
-    // status ditampilkan di baris.
-    where: { ruteId: pencatat.rute.id, deletedAt: null, status: { not: "CABUT_PERMANEN" } },
-    // Urutan kunjungan RBM (noUrutRute, pola bill_nourutrute Aurora) dulu;
-    // pelanggan tanpa urutan jatuh ke belakang, diurut nomor langganan
-    // supaya stabil antar unduhan.
+    // status ditampilkan di baris. Lintas SEMUA rute yang ditugaskan.
+    where: { ruteId: { in: ruteIds }, deletedAt: null, status: { not: "CABUT_PERMANEN" } },
+    // Urutan kunjungan DALAM rute (noUrutRute); urutan ANTAR rute diterapkan
+    // di bawah mengikuti PenugasanRute.urutan.
     orderBy: [{ noUrutRute: { sort: "asc", nulls: "last" } }, { nomorLangganan: "asc" }],
     select: {
       id: true,
@@ -200,9 +211,20 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
       geoLat: true,
       geoLong: true,
       noUrutRute: true,
+      ruteId: true,
       tarifGolongan: { select: { kodeAsli: true } },
       meter: { where: { isAktif: true }, take: 1, select: { id: true, nomorMeter: true } },
     },
+  })
+  // Urutkan lintas rute: rute sesuai urutan kerja, lalu noUrutRute dalam rute.
+  pelanggan.sort((a, b) => {
+    const ua = ruteInfo.get(a.ruteId!)?.urutan ?? 0
+    const ub = ruteInfo.get(b.ruteId!)?.urutan ?? 0
+    if (ua !== ub) return ua - ub
+    const na = a.noUrutRute ?? Number.MAX_SAFE_INTEGER
+    const nb = b.noUrutRute ?? Number.MAX_SAFE_INTEGER
+    if (na !== nb) return na - nb
+    return a.nomorLangganan.localeCompare(b.nomorLangganan)
   })
 
   const meterIds = pelanggan.flatMap((p) => p.meter.map((m) => m.id))
@@ -212,7 +234,8 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
   // tanpa menyeret seluruh histori bertahun-tahun.
   const batasRiwayat = periodeToDate(periode)
   batasRiwayat.setMonth(batasRiwayat.getMonth() - 6)
-  const [bacaanResmi, laporanPeriode] = await Promise.all([
+  const pelangganIds = pelanggan.map((p) => p.id)
+  const [bacaanResmi, laporanPeriode, tagihanTerakhir] = await Promise.all([
     meterIds.length
       ? prisma.pembacaanMeter.findMany({
           where: { meterId: { in: meterIds }, periode: { gte: batasRiwayat } },
@@ -224,6 +247,19 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
       where: { periode, nomorLangganan: { in: pelanggan.map((p) => p.nomorLangganan) } },
       select: { id: true, nomorLangganan: true, standAkhir: true, kondisi: true, tanggalCatat: true },
     }),
+    // Komponen tetap tagihan (beban + admin) dari tagihan RESMI terakhir tiap
+    // pelanggan — bahan estimasi total di layar catat (air progresif + beban
+    // + admin, pola calculateTagihan Aurora). Per-tagihan, bukan per-golongan
+    // (sumber CSV beabeban/beaadmin), jadi diambil dari riwayat pelanggan itu
+    // sendiri; pelanggan tanpa tagihan sebelumnya → null (estimasi jatuh ke
+    // air-saja). Terurut periode desc, elemen pertama = paling baru.
+    pelangganIds.length
+      ? prisma.tagihan.findMany({
+          where: { pelangganId: { in: pelangganIds } },
+          orderBy: [{ pelangganId: "asc" }, { periode: "desc" }],
+          select: { pelangganId: true, beaBeban: true, beaAdmin: true },
+        })
+      : Promise.resolve([]),
   ])
   // Kelompokkan per meter; baris sudah terurut periode desc, jadi elemen
   // pertama = pembacaan resmi terakhir (prefill stand lalu).
@@ -233,12 +269,20 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
     if (daftar.length < 3) riwayatPerMeter.set(b.meterId, [...daftar, b])
   }
   const laporanPerNomor = new Map(laporanPeriode.map((l) => [l.nomorLangganan, l]))
+  // Ambil hanya tagihan terbaru per pelanggan (baris terurut periode desc).
+  const biayaTetapPerPelanggan = new Map<string, { beaBeban: number; beaAdmin: number }>()
+  for (const t of tagihanTerakhir) {
+    if (!biayaTetapPerPelanggan.has(t.pelangganId)) {
+      biayaTetapPerPelanggan.set(t.pelangganId, { beaBeban: t.beaBeban, beaAdmin: t.beaAdmin })
+    }
+  }
 
   const rows = pelanggan.map((p, i) => {
     const meter = p.meter[0] ?? null
     const riwayat = (meter ? riwayatPerMeter.get(meter.id) : undefined) ?? []
     const bacaan = riwayat[0]
     const laporan = laporanPerNomor.get(p.nomorLangganan)
+    const biayaTetap = biayaTetapPerPelanggan.get(p.id) ?? null
     return {
       pelangganId: p.id,
       nomorLangganan: p.nomorLangganan,
@@ -251,6 +295,10 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
       geoLat: p.geoLat,
       geoLong: p.geoLong,
       golonganTarif: p.tarifGolongan?.kodeAsli ?? null,
+      /// Rute asal baris — mobile mengelompokkan daftar per rute sesuai
+      /// urutan kerja.
+      ruteId: p.ruteId,
+      ruteKode: ruteInfo.get(p.ruteId!)?.kode ?? null,
       /// Urutan kunjungan RBM; fallback urutan posisi untuk data lama yang
       /// belum punya noUrutRute.
       urutan: p.noUrutRute ?? i + 1,
@@ -259,6 +307,10 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
       nomorMeter: meter?.nomorMeter ?? null,
       standLalu: bacaan?.standAkhir ?? null,
       pemakaianLalu: bacaan?.pemakaianM3 ?? null,
+      /// Komponen tetap tagihan terakhir (null bila pelanggan belum pernah
+      /// ditagih) — mobile menambahkannya ke estimasi uang air progresif.
+      beaBeban: biayaTetap?.beaBeban ?? null,
+      beaAdmin: biayaTetap?.beaAdmin ?? null,
       /// Maks. 3 pembacaan resmi terakhir, terbaru dulu (period1..period3
       /// di Aurora) — di-cache aplikasi untuk ditunjukkan ke pelanggan
       /// saat ada sengketa tagihan di lapangan.
@@ -275,120 +327,32 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
     }
   })
 
+  // Ringkasan per rute (urut kerja) — target = jumlah pelanggan rute,
+  // terbaca = yang sudah dicatat periode ini. Header aplikasi memakai ini.
+  const rutes = penugasan.map((pg) => {
+    const barisRute = rows.filter((r) => r.ruteId === pg.ruteId)
+    return {
+      id: pg.ruteId,
+      kode: pg.rute.kode,
+      seksiCater: pg.rute.seksiCater,
+      urutan: pg.urutan,
+      target: barisRute.length,
+      terbaca: barisRute.filter((r) => r.sudahDicatat).length,
+    }
+  })
+
   return ok(c, {
     pencatat: { id: pencatat.id, namaLapangan: pencatat.namaLapangan },
-    rute: pencatat.rute,
+    // `rute` (tunggal, rute pertama) dipertahankan untuk kompatibilitas
+    // aplikasi versi lama; `rutes` adalah daftar penuh yang dibaca versi baru.
+    rute: rutes[0] ? { id: rutes[0].id, kode: rutes[0].kode, seksiCater: rutes[0].seksiCater } : null,
+    rutes,
     periode,
     target: rows.length,
     terbaca: rows.filter((r) => r.sudahDicatat).length,
     dicatatSaya,
     pelanggan: rows,
   })
-})
-
-// ── Pencatat MEMILIH sendiri rute kerjanya (self-service dari aplikasi
-// mobile). Menulis Pencatat.ruteId milik AKUN TOKEN SENDIRI — berbeda dari
-// PATCH /pencatat/:id (SUPERVISOR_UP) yang mengatur pencatat mana pun.
-// null = melepas rute (berhenti memegang rute apa pun).
-const pilihRuteSchema = z.object({ ruteId: z.string().min(1).nullable() })
-
-laporanHarianRouter.patch("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), validate("json", pilihRuteSchema), async (c) => {
-  const user = getSessionUser(c)
-  const { ruteId } = c.req.valid("json")
-
-  const pencatat = await prisma.pencatat.findUnique({ where: { userId: user.id } })
-  if (!pencatat || !pencatat.isAktif) {
-    throw new BadRequestError(
-      "Akun Anda belum tertaut ke data Pencatat aktif — minta admin menautkannya di menu Pencatat dashboard web.",
-    )
-  }
-  if (ruteId) {
-    const rute = await prisma.rute.findUnique({ where: { id: ruteId } })
-    if (!rute) throw new NotFoundError("Rute")
-  }
-
-  const row = await prisma.pencatat.update({
-    where: { id: pencatat.id },
-    data: { ruteId },
-    include: { rute: { select: { id: true, kode: true } } },
-  })
-  return ok(c, { rute: row.rute })
-})
-
-// ── Daftar rute yang bisa dipilih pencatat, dengan progres periode
-// berjalan per rute (tercatat / jumlah pelanggan) dan siapa yang sedang
-// memegangnya — bahan layar "Pilih Rute" aplikasi mobile.
-const ruteTersediaQuerySchema = paginationQuerySchema.extend({
-  periode: z.coerce.number().int().min(190001).max(999912).optional(),
-  q: z.string().trim().min(1).optional(),
-})
-
-laporanHarianRouter.get("/rute-tersedia", requireRole(...ROLE_GROUPS.STAFF_UP), validate("query", ruteTersediaQuerySchema), async (c) => {
-  const query = c.req.valid("query")
-  const periode = query.periode ?? dateToPeriode(new Date())
-  const { skip, take } = buildSkipTake(query)
-  const where = query.q ? { kode: { contains: query.q, mode: "insensitive" as const } } : {}
-
-  const [rute, total] = await Promise.all([
-    prisma.rute.findMany({
-      where,
-      orderBy: { kode: "asc" },
-      skip,
-      take,
-      select: { id: true, kode: true, seksiCater: { select: { nama: true } } },
-    }),
-    prisma.rute.count({ where }),
-  ])
-  const ids = rute.map((r) => r.id)
-
-  const [pelangganPerRute, pemegang, tercatatPerRute] = await Promise.all([
-    ids.length
-      ? prisma.pelanggan.groupBy({
-          by: ["ruteId"],
-          where: { ruteId: { in: ids }, deletedAt: null, status: { not: "CABUT_PERMANEN" } },
-          _count: { _all: true },
-        })
-      : Promise.resolve([]),
-    ids.length
-      ? prisma.pencatat.findMany({
-          where: { ruteId: { in: ids }, isAktif: true },
-          select: { ruteId: true, namaLapangan: true },
-        })
-      : Promise.resolve([]),
-    // Laporan periode ini per rute: laporan tidak menyimpan ruteId — join
-    // lewat pelanggan. groupBy Prisma tidak bisa menembus relasi, jadi raw
-    // SQL; identifier ditulis literal + nilai sebagai parameter posisi
-    // (JANGAN Prisma.raw / interpolasi nilai — lihat server/README.md).
-    ids.length
-      ? prisma.$queryRawUnsafe<{ ruteId: string; n: number }[]>(
-          `SELECT p."ruteId" AS "ruteId", COUNT(*)::int AS n
-           FROM laporan_harian_petugas l
-           JOIN pelanggan p ON p.id = l."pelangganId"
-           WHERE l.periode = $1 AND p."ruteId" IN (${ids.map((_, i) => `$${i + 2}`).join(",")})
-           GROUP BY p."ruteId"`,
-          periode,
-          ...ids,
-        )
-      : Promise.resolve([]),
-  ])
-
-  const jumlahPelanggan = new Map(pelangganPerRute.map((g) => [g.ruteId, g._count._all]))
-  const tercatat = new Map(tercatatPerRute.map((t) => [t.ruteId, t.n]))
-  const namaPemegang = new Map<string, string[]>()
-  for (const p of pemegang) {
-    if (!p.ruteId) continue
-    namaPemegang.set(p.ruteId, [...(namaPemegang.get(p.ruteId) ?? []), p.namaLapangan])
-  }
-
-  const data = rute.map((r) => ({
-    id: r.id,
-    kode: r.kode,
-    seksiCater: r.seksiCater?.nama ?? null,
-    jumlahPelanggan: jumlahPelanggan.get(r.id) ?? 0,
-    tercatat: tercatat.get(r.id) ?? 0,
-    dipegang: namaPemegang.get(r.id) ?? [],
-  }))
-  return paginated(c, data, buildMeta(total, query))
 })
 
 // ── Upload berkas bukti petugas (foto stand / segel / rumah, plus video

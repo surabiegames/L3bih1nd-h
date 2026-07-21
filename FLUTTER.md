@@ -309,6 +309,15 @@ Semua di bawah `/api/v1`, semua respons memakai envelope §3.
   Perlakukan `TERSIMPAN` **dan** `DUPLIKAT` sebagai sukses (tandai baris
   lokal "sudah terunggah") — DUPLIKAT muncul saat unggah ulang setelah
   sinyal putus. Hanya `GAGAL` yang perlu dicoba lagi/dilaporkan.
+- **Backup & pemulihan (crash-safety)**: tiap catat menulis BUNDEL lokal ke
+  `<AppDocuments>/backup/pembacaan/<periode>/<nomorLangganan>/` berisi
+  `catatan.json` (SELURUH field pembacaan + metadata) + `stand.jpg`/
+  `segel.jpg`/`rumah.jpg`/`video.mp4`, INDEPENDEN dari antrean SQLite. Layar
+  **Cadangan** bisa "Pulihkan ke Antrean" (kembalikan pembacaan yang belum
+  terunggah bila DB lokal hilang) dan "Ekspor ZIP" (bundel → dibagikan).
+  Admin mengimpornya di dashboard web via `POST /laporan-harian/import-backup`
+  (multipart `berkas` = ZIP; server urai → simpan foto → `simpanLaporan`,
+  idempoten DUPLIKAT). Respons ringkas sama bentuk dengan `/batch`.
 - Verifikasi BERJENJANG V1→V2→V3 (menggantikan `/verify` lama — endpoint
   itu sudah DIHAPUS). Urutan wajib; pembacaan resmi baru terbentuk di V3:
   - `PATCH /laporan-harian/:id/verif1` (SUPERVISOR_UP):

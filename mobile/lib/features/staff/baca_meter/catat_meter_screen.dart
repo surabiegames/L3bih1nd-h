@@ -30,7 +30,7 @@ import 'tarif_repository.dart';
 /// guard-nya mengikuti `CatatStandFragment` Aurora yang terbukti di
 /// lapangan:
 /// stand lalu → stand akhir dengan pemakaian + deviasi live, kondisi
-/// kelainan, kondisi segel, usulan perubahan data & nomor urut, 3 slot foto
+/// kelainan, kondisi segel, usulan perubahan data, 3 slot foto
 /// (kompres 600px + watermark waktu+petugas) + video, jarak GPS live ke
 /// titik pelanggan, riwayat 3 periode, estimasi uang air progresif, dialog
 /// konfirmasi lengkap sebelum simpan, dan navigasi sebelum/berikutnya
@@ -58,7 +58,6 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
   final _lokasi = const LokasiService();
   final _kontrolStand = TextEditingController();
   final _kontrolPerubahan = TextEditingController();
-  final _kontrolUsulanUrut = TextEditingController();
   late final _kontrolNoHp = TextEditingController(
     text: widget.pelanggan.notelp ?? '',
   );
@@ -100,7 +99,6 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
     _subPosisi?.cancel();
     _kontrolStand.dispose();
     _kontrolPerubahan.dispose();
-    _kontrolUsulanUrut.dispose();
     _kontrolNoHp.dispose();
     super.dispose();
   }
@@ -473,7 +471,6 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
     final estimasi = _estimasiAir;
     final estimasiTotal = _estimasiTotal;
     final biayaTetap = _biayaTetap;
-    final usulanUrut = int.tryParse(_kontrolUsulanUrut.text);
     final noHpBaru = _kontrolNoHp.text.trim();
     final gantiNoHp = noHpBaru.isNotEmpty && noHpBaru != (p.notelp ?? '');
 
@@ -488,7 +485,6 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
         'Segel: ${_isSegel! ? 'tersegel' : 'tidak tersegel'}',
       if (jarak != null) 'Jarak ke titik pelanggan: ±$jarak m',
       if (gantiNoHp) 'No. HP diperbarui: $noHpBaru',
-      if (usulanUrut != null) 'Usulan urutan baru: $usulanUrut',
       if (_kontrolPerubahan.text.trim().isNotEmpty)
         'Usulan perubahan: ${_kontrolPerubahan.text.trim()}',
       'Berkas: ${_fotoPaths.isEmpty ? 'tidak ada' : _fotoPaths.keys.map((j) => _labelSlot[j]).join(', ')}',
@@ -529,7 +525,7 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
       _galat = null;
     });
     try {
-      final hasil = await _repo.catat(
+      await _repo.catat(
         pelanggan: p,
         periode: periodeCatatSekarang(),
         standAwal: lalu,
@@ -543,33 +539,12 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
         usulanPerubahan: _kontrolPerubahan.text.trim().isEmpty
             ? null
             : _kontrolPerubahan.text.trim(),
-        usulanNoUrut: usulanUrut,
         notelpBaru: gantiNoHp ? noHpBaru : null,
       );
       if (!mounted) return;
-      if (hasil == HasilCatat.tersimpanOffline) {
-        // Tanpa sinyal: hasil masuk antrean perangkat — beri tahu petugas
-        // sebelum lanjut, supaya jelas datanya TIDAK hilang.
-        await showShadDialog<void>(
-          context: context,
-          builder: (context) => ShadDialog.alert(
-            title: const Text('Tersimpan di Perangkat'),
-            description: const Text(
-              'Tidak ada sinyal — hasil baca disimpan di perangkat dan akan '
-              'terkirim otomatis saat aplikasi kembali online.',
-            ),
-            actions: [
-              ShadButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Mengerti'),
-              ),
-            ],
-          ),
-        );
-        if (!mounted) return;
-      }
       // Alur jalan Aurora: selesai satu rumah → tawarkan rumah berikutnya
-      // yang belum dibaca, tanpa harus kembali ke daftar.
+      // yang belum dibaca, tanpa harus kembali ke daftar. Hasil catat MASUK
+      // ANTREAN upload (belum dikirim) — diunggah lewat menu Upload.
       final berikut = _berikutnyaBelumDibaca();
       if (berikut != null) {
         final lanjutJalan = await showShadDialog<bool>(
@@ -1091,23 +1066,6 @@ class _CatatMeterScreenState extends State<CatatMeterScreen> {
               'Contoh: nama di persil beda / rumah sudah dibongkar…',
             ),
             maxLines: 2,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Usulan Nomor Urut Baru (opsional)',
-            style: theme.textTheme.small,
-          ),
-          const SizedBox(height: 6),
-          ShadInput(
-            controller: _kontrolUsulanUrut,
-            placeholder: Text(
-              'Urutan kunjungan yang lebih pas${p.noUrutRute == null ? '' : ' (sekarang: ${p.noUrutRute})'}',
-            ),
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(4),
-            ],
           ),
           const SizedBox(height: 20),
 

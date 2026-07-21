@@ -62,7 +62,9 @@ class _PortalScreenState extends State<PortalScreen> {
   Future<_AngkaPortal> _muatAngka() async {
     final hasil = await Future.wait<Object?>([
       _pengaduan.tiketSaya().then<Object?>((v) => v).catchError((_) => null),
-      _rute.ruteSaya().then<Object?>((v) => v).catchError((_) => null),
+      // Cache (segarkan:false) — data rute sudah diunduh; portal tak perlu
+      // menembak jaringan tiap dibuka (penyebab lemot berpindah layar).
+      _rute.ruteSaya(segarkan: false).then<Object?>((v) => v).catchError((_) => null),
       _rute.jumlahTertunda().then<Object?>((v) => v).catchError((_) => 0),
     ]);
     final tiket = hasil[0] as List<dynamic>?;

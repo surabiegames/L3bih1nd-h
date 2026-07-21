@@ -47,6 +47,9 @@ dependencies:
   image: ^4.9.1
   mobile_scanner: ^7.3.0
   google_mlkit_text_recognition: ^0.16.0
+  # Backup data baca meter: zip bundel cadangan + bagikan untuk impor di web.
+  archive: ^4.0.2
+  share_plus: ^13.2.1
 
 # Build Linux desktop TANPA libsecret-1-dev: implementasi resmi
 # flutter_secure_storage_linux menuntut library sistem itu saat CMake —

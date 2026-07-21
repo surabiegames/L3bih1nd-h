@@ -14,6 +14,7 @@ import '../../../core/widgets/squircle_icon.dart';
 import '../info_tagihan/info_tagihan_screen.dart';
 import '../notifikasi/notifikasi_screen.dart';
 import '../baca_meter/antrean_upload_screen.dart';
+import '../baca_meter/cadangan_screen.dart';
 import '../baca_meter/catat_meter_screen.dart';
 import '../baca_meter/daftar_pelanggan_screen.dart';
 import '../baca_meter/download_data_screen.dart';
@@ -48,18 +49,24 @@ class _PencatatHomeScreenState extends State<PencatatHomeScreen> {
     _muat();
   }
 
-  Future<void> _muat() async {
+  /// [paksa] true = tarik ulang dari server (pull-to-refresh); false = baca
+  /// cache lokal (navigasi biasa — data rute sudah diunduh, tak perlu jaringan).
+  Future<void> _muat({bool paksa = false}) async {
     final hasil = await Future.wait<Object?>([
-      _rute.ruteSaya().then<Object?>((v) => v).catchError((_) => null),
+      _rute.ruteSaya(segarkan: paksa).then<Object?>((v) => v).catchError((_) => null),
       _rute.jumlahTertunda().then<Object?>((v) => v).catchError((_) => 0),
       _rute
           .daftarTertunda()
           .then<Object?>((v) => v)
           .catchError((_) => const <CatatTertunda>[]),
-      NotifikasiService.instance
-          .jumlahBelumDibaca()
-          .then<Object?>((v) => v)
-          .catchError((_) => 0),
+      // Notif menembak jaringan → hanya saat refresh; navigasi biasa memakai
+      // hitungan terakhir (menghindari lag pindah layar).
+      paksa
+          ? NotifikasiService.instance
+                .jumlahBelumDibaca()
+                .then<Object?>((v) => v)
+                .catchError((_) => _notifBelumDibaca)
+          : Future<Object?>.value(_notifBelumDibaca),
     ]);
     if (!mounted) return;
     final antrean = (hasil[2] as List?)?.cast<CatatTertunda>() ?? const [];
@@ -106,7 +113,7 @@ class _PencatatHomeScreenState extends State<PencatatHomeScreen> {
     return WorkspaceScaffold(
       judul: 'Pencatat Meter',
       subjudul: 'Progres rute yang ditugaskan ke Anda',
-      onSegarkan: _muat,
+      onSegarkan: () => _muat(paksa: true),
       children: [
         // ── Chart progres target rute (pusat layar)
         _KartuTargetRute(paket: paket, tertunda: _tertunda),
@@ -198,6 +205,25 @@ class _PencatatHomeScreenState extends State<PencatatHomeScreen> {
                       onTap: () => _buka(() => const NotifikasiScreen()),
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: LaunchpadItem(
+                      ikon: CupertinoIcons.shield_lefthalf_fill,
+                      label: 'Cadangan',
+                      gradasi: const [
+                        Color(MasterPalette.emerald400),
+                        Color(MasterPalette.teal600),
+                      ],
+                      onTap: () => _buka(() => const CadanganScreen()),
+                    ),
+                  ),
+                  // Slot kosong menjaga grid tetap sejajar 3 kolom.
+                  const Expanded(child: SizedBox()),
+                  const Expanded(child: SizedBox()),
                 ],
               ),
             ],

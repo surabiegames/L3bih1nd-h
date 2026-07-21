@@ -140,7 +140,7 @@ export function PemetaanRuteClient() {
             <Input value={cari} onChange={(e) => setCari(e.target.value)} placeholder="Cari petugas…" className="pl-8" />
           </div>
         </div>
-        <ScrollArea className="h-[560px]">
+        <ScrollArea className="h-140">
           {memuatKiri ? (
             <div className="flex h-40 items-center justify-center text-muted-foreground">
               <Loader2 className="size-5 animate-spin" />
@@ -184,7 +184,7 @@ export function PemetaanRuteClient() {
       {/* Panel kanan: rute petugas terpilih */}
       <div className="rounded-xl border bg-card p-4">
         {!pencatatTerpilih ? (
-          <div className="flex h-[540px] flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+          <div className="flex h-135 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
             <MapPin className="size-8" />
             <p className="text-sm">Pilih petugas di kiri untuk mengatur rutenya.</p>
           </div>
@@ -211,7 +211,7 @@ export function PemetaanRuteClient() {
                 <p className="text-sm">Petugas ini belum memegang rute. Klik “Tambah rute”.</p>
               </div>
             ) : (
-              <ScrollArea className="h-[480px] pr-3">
+              <ScrollArea className="h-120 pr-3">
                 <DaftarSeret
                   // id = ruteId supaya onUrut mengembalikan ruteIds (untuk
                   // PATCH /urutan); id penugasan asli disimpan terpisah

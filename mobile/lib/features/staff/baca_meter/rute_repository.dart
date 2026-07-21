@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../../../core/auth/sesi_petugas.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_config.dart';
 import '../../../core/network/api_exception.dart';
@@ -83,6 +84,12 @@ abstract interface class RuteRepository {
   /// layar Riwayat, padanan daftar read + today reading Aurora. Offline →
   /// dibangun dari cache lokal.
   Future<List<LaporanSaya>> riwayatSaya();
+
+  /// Pulihkan hasil catat dari BUNDEL CADANGAN internal storage ke antrean
+  /// upload — penyelamat bila DB lokal korup/aplikasi crash sehingga antrean
+  /// hilang. Hanya bundel yang BELUM terunggah dan TIDAK sudah ada di antrean
+  /// yang dikembalikan. Mengembalikan jumlah pembacaan yang dipulihkan.
+  Future<int> pulihkanDariCadangan();
 }
 
 class ApiRuteRepository implements RuteRepository {
@@ -94,11 +101,12 @@ class ApiRuteRepository implements RuteRepository {
   final RbmDao _dao;
   final BackupLokal _backup;
 
-  bool _migrasiSelesai = false;
+  // STATIC: migrasi cukup SEKALI per proses. Sebelumnya per-instance, padahal
+  // tiap layar membuat repo baru → migrasiDariPrefs (baca SharedPreferences)
+  // jalan tiap pindah layar, ikut memperlambat. Kini benar-benar sekali.
+  static bool _migrasiSelesai = false;
 
-  /// Impor cache/antrean dari SharedPreferences versi lama — sekali per
-  /// proses; antrean adalah hasil kerja petugas, tidak boleh hilang karena
-  /// update aplikasi.
+  /// Impor cache/antrean dari SharedPreferences versi lama — sekali per proses.
   Future<void> _pastikanMigrasi() async {
     if (_migrasiSelesai) return;
     await _dao.migrasiDariPrefs();
@@ -214,34 +222,35 @@ class ApiRuteRepository implements RuteRepository {
           : null,
     );
 
-    try {
-      await _kirimLaporan(payload, fotoPaths);
-      await _dao.tandaiDicatat(pelanggan.nomorLangganan);
-      return HasilCatat.terkirim;
-    } on ApiException catch (e) {
-      if (e.status != 0) rethrow; // 4xx/5xx: bukan soal sinyal, tampilkan.
-      await _dao.tambahAntrean(
-        CatatTertunda(
-          payload: payload,
-          fotoPaths: fotoPaths,
-          dibuatPada: DateTime.now(),
-        ),
-      );
-      return HasilCatat.tersimpanOffline;
-    }
-  }
-
-  /// Unggah berkas satu per satu lalu kirim laporan dengan URL-nya.
-  Future<void> _kirimLaporan(
-    Map<String, Object?> payload,
-    Map<String, String> fotoPaths,
-  ) async {
-    final body = await _payloadDenganUrlBerkas(payload, fotoPaths);
-    await _api.post(
-      '${ApiConfig.v1Path}/laporan-harian',
-      body: body,
-      parse: (_) {},
+    // Model Aurora: catat = SIMPAN LOKAL ke antrean upload (bill_is_upload=1),
+    // TIDAK langsung dikirim. Pengiriman ke server adalah aksi TERPISAH yang
+    // disengaja petugas (menu Upload) — supaya hasil kerja terlihat di antrean
+    // & bisa diunggah sekaligus (kontrol kuota/foto, unggah batch). bacaPaket
+    // menandai pelanggan ber-antrean sebagai sudah dicatat, jadi statusnya
+    // langsung benar walau belum terkirim; menghapus dari antrean
+    // mengembalikannya jadi belum dibaca.
+    await _dao.tambahAntrean(
+      CatatTertunda(
+        payload: payload,
+        fotoPaths: fotoPaths,
+        dibuatPada: DateTime.now(),
+      ),
     );
+
+    // Bundel cadangan catatan.json (INDEPENDEN dari SQLite) — sumber
+    // pemulihan bila DB lokal korup/aplikasi crash, dan bahan ekspor→impor
+    // web. Foto sudah tersalin ke folder bundel yang sama saat capture.
+    await _backup.simpanCatatan(
+      periode: periode,
+      nomorLangganan: pelanggan.nomorLangganan,
+      data: {
+        ...payload,
+        'ruteKode': pelanggan.ruteKode,
+        'namaPetugas': SesiPetugas.instance.akun?.name,
+        'dibuatPada': DateTime.now().toIso8601String(),
+      },
+    );
+    return HasilCatat.tersimpanOffline;
   }
 
   static const _namaFieldUrl = {
@@ -364,6 +373,8 @@ class ApiRuteRepository implements RuteRepository {
       if (status == 'TERSIMPAN' || status == 'DUPLIKAT') {
         if (entri.idAntrean != null) await _dao.hapusAntrean(entri.idAntrean!);
         await _dao.tandaiDicatat(entri.nomorLangganan);
+        // Tandai bundel cadangan aman di server → dilewati saat pemulihan.
+        await _backup.tandaiTerunggah(entri.periode, entri.nomorLangganan);
         terkirim++;
       } else {
         final pesan =
@@ -463,12 +474,54 @@ class ApiRuteRepository implements RuteRepository {
           ),
     ];
   }
+
+  @override
+  Future<int> pulihkanDariCadangan() async {
+    await _pastikanMigrasi();
+    final bundel = await _backup.daftarBundel();
+    if (bundel.isEmpty) return 0;
+    final nomorAntre = {
+      for (final a in await _dao.daftarAntrean()) a.nomorLangganan,
+    };
+    var dipulihkan = 0;
+    for (final b in bundel) {
+      // Sudah aman di server, atau masih ada di antrean → tak perlu dipulihkan.
+      if (b.terunggah || nomorAntre.contains(b.nomorLangganan)) continue;
+      // Bangun payload dari catatan.json (buang metadata non-payload).
+      final payload = Map<String, Object?>.from(b.data)
+        ..remove('ruteKode')
+        ..remove('namaPetugas')
+        ..remove('dibuatPada');
+      await _dao.tambahAntrean(
+        CatatTertunda(
+          payload: payload,
+          fotoPaths: b.fotoPaths,
+          dibuatPada: DateTime.now(),
+        ),
+      );
+      dipulihkan++;
+    }
+    return dipulihkan;
+  }
 }
 
 /// Rute contoh R-042 untuk mode demo — termasuk baris yang sudah dicatat
 /// supaya progres rute terlihat.
 class DemoRuteRepository implements RuteRepository {
-  static final List<PelangganRute> _rute = _buatRuteAwal();
+  static List<PelangganRute> _rute = _buatRuteAwal();
+
+  /// Antrean upload demo (in-memory) — mensimulasikan alur Aurora: catat →
+  /// masuk antrean → Upload manual. Statis supaya terbagi antar layar
+  /// (layar catat & layar Upload memakai instance repo berbeda).
+  static final List<CatatTertunda> _antrean = [];
+  static int _idSeq = 1;
+
+  /// Reset seluruh keadaan demo — dipakai setUp uji agar tiap uji bersih.
+  static void resetDemo() {
+    _rute = _buatRuteAwal();
+    _antrean.clear();
+    _idSeq = 1;
+  }
 
   static List<PelangganRute> _buatRuteAwal() {
     PelangganRute p(
@@ -647,20 +700,48 @@ class DemoRuteRepository implements RuteRepository {
     await Future<void>.delayed(const Duration(milliseconds: 500));
     final i = _rute.indexWhere((p) => p.id == pelanggan.id);
     if (i >= 0) _rute[i] = _rute[i].copyWith(sudahDicatat: true);
-    return HasilCatat.terkirim;
+    // Masuk antrean upload (catat ulang menimpa entri lama pelanggan sama).
+    _antrean.removeWhere((e) => e.nomorLangganan == pelanggan.nomorLangganan);
+    _antrean.add(
+      CatatTertunda(
+        payload: {
+          'nomorLangganan': pelanggan.nomorLangganan,
+          'periode': periode,
+          'standAkhir': standAkhir,
+          'kondisi': kondisi,
+        },
+        fotoPaths: const {},
+        dibuatPada: DateTime.now(),
+        idAntrean: _idSeq++,
+      ),
+    );
+    return HasilCatat.tersimpanOffline;
   }
 
   @override
-  Future<int> kirimTertunda() async => 0;
+  Future<int> kirimTertunda() async {
+    final n = _antrean.length;
+    _antrean.clear();
+    return n;
+  }
 
   @override
-  Future<int> jumlahTertunda() async => 0;
+  Future<int> jumlahTertunda() async => _antrean.length;
 
   @override
-  Future<List<CatatTertunda>> daftarTertunda() async => const [];
+  Future<List<CatatTertunda>> daftarTertunda() async => List.of(_antrean);
 
   @override
-  Future<void> hapusTertunda(int idAntrean) async {}
+  Future<void> hapusTertunda(int idAntrean) async {
+    for (final e in _antrean) {
+      if (e.idAntrean == idAntrean) {
+        final i = _rute.indexWhere((p) => p.nomorLangganan == e.nomorLangganan);
+        if (i >= 0) _rute[i] = _rute[i].copyWith(sudahDicatat: false);
+        break;
+      }
+    }
+    _antrean.removeWhere((e) => e.idAntrean == idAntrean);
+  }
 
   @override
   Future<List<LaporanSaya>> riwayatSaya() async {
@@ -684,6 +765,9 @@ class DemoRuteRepository implements RuteRepository {
         ),
     ];
   }
+
+  @override
+  Future<int> pulihkanDariCadangan() async => 0;
 }
 
 /// Periode catat berjalan default untuk petugas: bulan kalender saat ini —

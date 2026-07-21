@@ -13,15 +13,17 @@ import '../../../core/widgets/app_scaffold.dart';
 import '../../../core/widgets/glass_panel.dart';
 import 'antrean_upload_screen.dart';
 import 'catat_meter_screen.dart';
+import 'pelanggan_rute_screen.dart';
 import 'rute_repository.dart';
 import 'scan_qr_screen.dart';
 
-/// Baca Meter — daftar pelanggan rute petugas (RBM), urut kunjungan,
-/// dengan tab Belum/Sudah dibaca (pola `daftarPelangganUnRead/Read`
-/// Aurora) dan scan QR pelanggan (pola Scan & Get).
-/// Tombol muat = UNDUH rute dari server (paket target + stand lalu) yang
-/// di-cache untuk kerja offline; hasil catat yang antre offline dikirim
-/// ulang otomatis setiap kali layar ini memuat.
+/// Baca Meter — LANGKAH 1: pilih rute yang dikerjakan hari ini. Petugas bisa
+/// memegang beberapa rute; layar ini menampilkannya sebagai kartu (kode,
+/// seksi, progres per rute). Ketuk satu rute → daftar pelanggannya urut nomor
+/// urut (`PelangganRuteScreen`, pola daftarPelanggan Aurora). Tombol muat =
+/// UNDUH rute dari server (paket target + stand lalu) yang di-cache untuk
+/// kerja offline; hasil catat yang antre offline dikirim ulang otomatis
+/// setiap kali layar ini dimuat.
 class DaftarPelangganScreen extends StatefulWidget {
   const DaftarPelangganScreen({super.key});
 
@@ -31,15 +33,10 @@ class DaftarPelangganScreen extends StatefulWidget {
 
 class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
   final _repo = RuteRepository.create();
-  final _kontrolCari = TextEditingController();
 
   RuteSaya? _paket;
   String? _galat;
-  String _kunci = '';
   int _tertunda = 0;
-
-  /// false = tab "Belum Dibaca" (default kerja lapangan), true = "Sudah".
-  bool _tabSudah = false;
 
   @override
   void initState() {
@@ -47,22 +44,19 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
     _muat();
   }
 
-  @override
-  void dispose() {
-    _kontrolCari.dispose();
-    super.dispose();
-  }
-
-  Future<void> _muat() async {
+  /// [paksa] true = UNDUH ulang dari server (tombol download); false = baca
+  /// cache lokal (buka layar / kembali dari rute — instan, tanpa jaringan).
+  Future<void> _muat({bool paksa = false}) async {
     setState(() {
-      _paket = null;
+      // Kosongkan (spinner) hanya saat UNDUH jaringan; baca cache biarkan data
+      // lama tampil sampai yang baru datang — mulus, tanpa kedip.
+      if (paksa) _paket = null;
       _galat = null;
     });
     try {
-      // Sinkron dulu: laporan yang antre offline dikirim sebelum paket
-      // diunduh ulang, supaya progres dari server sudah memuat hasilnya.
-      await _repo.kirimTertunda();
-      final paket = await _repo.ruteSaya();
+      // TIDAK auto-upload: hasil catat menunggu di antrean sampai petugas
+      // menekan Upload (model Aurora — kontrol kuota/foto, unggah batch).
+      final paket = await _repo.ruteSaya(segarkan: paksa);
       final tertunda = await _repo.jumlahTertunda();
       if (!mounted) return;
       setState(() {
@@ -75,68 +69,27 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
     }
   }
 
-  /// Daftar tab aktif (belum/sudah dibaca) SEBELUM kata kunci pencarian —
-  /// juga menjadi urutan kunjungan untuk navigasi next/prev di layar catat.
-  List<PelangganRute> get _daftarTab {
-    final semua = _paket?.pelanggan ?? const <PelangganRute>[];
-    return [
-      for (final p in semua)
-        if (p.sudahDicatat == _tabSudah) p,
-    ];
-  }
+  int _targetRute(RuteRingkas r) => [
+    for (final p in _paket?.pelanggan ?? const <PelangganRute>[])
+      if (p.ruteKode == r.kode) p,
+  ].length;
 
-  List<PelangganRute> get _tersaring {
-    final daftar = _daftarTab;
-    if (_kunci.isEmpty) return daftar;
-    final k = _kunci.toLowerCase();
-    return daftar
-        .where(
-          (p) =>
-              p.nomorLangganan.contains(k) ||
-              p.nama.toLowerCase().contains(k) ||
-              (p.alamat ?? '').toLowerCase().contains(k),
-        )
-        .toList();
-  }
+  int _terbacaRute(RuteRingkas r) => [
+    for (final p in _paket?.pelanggan ?? const <PelangganRute>[])
+      if (p.ruteKode == r.kode && p.sudahDicatat) p,
+  ].length;
 
-  /// Item daftar. Saat petugas memegang >1 rute, sisipkan header nama rute
-  /// (String) di antara kelompok; jika hanya satu rute, daftar tetap datar.
-  /// Pelanggan sudah terurut (urutan rute lalu noUrutRute) dari server.
-  List<Object> get _itemDaftar {
-    final list = _tersaring;
-    if ((_paket?.rutes.length ?? 0) <= 1) return List<Object>.from(list);
-    final hasil = <Object>[];
-    String? ruteKini;
-    for (final p in list) {
-      if (p.ruteKode != ruteKini) {
-        ruteKini = p.ruteKode;
-        hasil.add(ruteKini ?? '—');
-      }
-      hasil.add(p);
-    }
-    return hasil;
-  }
-
-  Future<void> _bukaCatat(PelangganRute pelanggan) async {
-    // Urutan kunjungan = daftar tab saat ini; navigasi next/prev dan
-    // "lanjut ke berikutnya" di layar catat mengikuti urutan jalan ini.
-    final urutan = _daftarTab;
-    await Navigator.of(context).push<bool>(
+  Future<void> _bukaRute(RuteRingkas rute) async {
+    await Navigator.of(context).push<void>(
       PageRouteBuilder(
-        pageBuilder: (_, _, _) =>
-            CatatMeterScreen(pelanggan: pelanggan, urutanKunjungan: urutan),
+        pageBuilder: (_, _, _) => PelangganRuteScreen(rute: rute),
         transitionsBuilder: (_, animasi, _, child) =>
             FadeTransition(opacity: animasi, child: child),
       ),
     );
-    // Selalu muat ulang: layar catat bisa berpindah-pindah pelanggan
-    // (next/prev) sebelum kembali, hasilnya tidak terwakili satu bool.
+    // Kembali dari rute: segarkan progres (catat bisa menambah terbaca).
     if (mounted) _muat();
   }
-
-  /// Scanner butuh kamera perangkat — hanya Android/iOS (dev desktop tetap
-  /// bisa memakai pencarian teks).
-  bool get _bisaScan => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   Future<void> _bukaAntrean() async {
     await Navigator.of(context).push<void>(
@@ -149,10 +102,14 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
     if (mounted) _muat();
   }
 
-  /// Scan QR → cocokkan dengan paket rute lokal (offline penuh, pola
-  /// Scan & Get Aurora): persis nomor langganan, atau akhiran kode yang
-  /// tercetak di kartu meter.
+  bool get _bisaScan => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  /// Scan QR → cari pelanggan lintas SEMUA rute (pola Scan & Get Aurora),
+  /// lalu langsung buka layar catat (urutan next/prev = teman serute yang
+  /// belum dibaca).
   Future<void> _scanQr() async {
+    final paket = _paket;
+    if (paket == null) return;
     final hasil = await Navigator.of(context).push<String>(
       PageRouteBuilder(
         pageBuilder: (_, _, _) => const ScanQrScreen(),
@@ -163,8 +120,7 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
     if (hasil == null || !mounted) return;
 
     final digit = hasil.replaceAll(RegExp(r'\D'), '');
-    final semua = _paket?.pelanggan ?? const <PelangganRute>[];
-    final cocok = semua.where(
+    final cocok = paket.pelanggan.where(
       (p) =>
           p.nomorLangganan == hasil ||
           (digit.isNotEmpty &&
@@ -177,7 +133,7 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
           title: const Text('Tidak Ditemukan'),
           description: Text(
             'Kode "$hasil" tidak cocok dengan pelanggan mana pun di rute '
-            'Anda. Pastikan rute sudah diunduh, atau cari manual.',
+            'Anda. Pastikan rute sudah diunduh, atau buka rutenya manual.',
           ),
           actions: [
             ShadButton(
@@ -189,7 +145,20 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
       );
       return;
     }
-    await _bukaCatat(cocok.first);
+    final target = cocok.first;
+    final urutan = [
+      for (final p in paket.pelanggan)
+        if (p.ruteKode == target.ruteKode && !p.sudahDicatat) p,
+    ];
+    await Navigator.of(context).push<bool>(
+      PageRouteBuilder(
+        pageBuilder: (_, _, _) =>
+            CatatMeterScreen(pelanggan: target, urutanKunjungan: urutan),
+        transitionsBuilder: (_, animasi, _, child) =>
+            FadeTransition(opacity: animasi, child: child),
+      ),
+    );
+    if (mounted) _muat();
   }
 
   @override
@@ -200,7 +169,7 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
 
     return AppScaffold(
       title: 'Baca Meter',
-      subtitle: 'Rute kunjungan · ${labelPeriode(periode)}',
+      subtitle: 'Pilih rute · ${labelPeriode(periode)}',
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -211,210 +180,82 @@ class _DaftarPelangganScreenState extends State<DaftarPelangganScreen> {
             ),
           ShadIconButton.ghost(
             icon: const Icon(CupertinoIcons.cloud_download),
-            onPressed: _muat,
+            onPressed: () => _muat(paksa: true),
           ),
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (paket != null && paket.ruteKode != null) ...[
-                  _KartuProgres(
-                    paket: paket,
-                    tertunda: _tertunda,
-                    onBukaAntrean: _bukaAntrean,
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                ShadInput(
-                  controller: _kontrolCari,
-                  placeholder: const Text(
-                    'Cari nomor langganan / nama / alamat…',
-                  ),
-                  leading: const Icon(CupertinoIcons.search, size: 16),
-                  onChanged: (v) => setState(() => _kunci = v.trim()),
-                ),
-                const SizedBox(height: 8),
-                // Tab Belum/Sudah dibaca (pola read/unread Aurora) — hitungan
-                // mengikuti paket, bukan hasil saring, supaya stabil.
-                if (paket != null && paket.ruteKode != null) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _TombolTab(
-                          label:
-                              'Belum Dibaca (${paket.target - paket.terbaca})',
-                          aktif: !_tabSudah,
-                          onTap: () => setState(() => _tabSudah = false),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _TombolTab(
-                          label: 'Sudah Dibaca (${paket.terbaca})',
-                          aktif: _tabSudah,
-                          onTap: () => setState(() => _tabSudah = true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ],
+      body: switch ((paket, _galat)) {
+        (null, null) => const Center(child: CircularProgressIndicator()),
+        (null, final String galat) => Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ShadAlert.destructive(
+                icon: const Icon(CupertinoIcons.exclamationmark_circle),
+                title: const Text('Gagal mengunduh rute'),
+                description: Text(galat),
+              ),
+              const SizedBox(height: 12),
+              ShadButton.outline(
+                onPressed: () => _muat(paksa: true),
+                leading: const Icon(CupertinoIcons.arrow_clockwise),
+                child: const Text('Coba Lagi'),
+              ),
+            ],
+          ),
+        ),
+        (final RuteSaya p, _) when p.rutes.isEmpty => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                CupertinoIcons.map_pin_slash,
+                size: 40,
+                color: theme.colorScheme.mutedForeground,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Rute belum ditugaskan ke akun Anda.\n'
+                'Penugasan rute diatur admin di dashboard web '
+                '(menu Pemetaan Rute) — hubungi admin bila belum ada.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.muted,
+              ),
+            ],
+          ),
+        ),
+        (final RuteSaya p, _) => ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          children: [
+            _RingkasanCatat(paket: p, tertunda: _tertunda, onBukaAntrean: _bukaAntrean),
+            const SizedBox(height: 14),
+            Text(
+              'Rute Anda hari ini',
+              style: theme.textTheme.small.copyWith(fontWeight: FontWeight.w700),
             ),
-          ),
-          Expanded(
-            child: switch ((paket, _galat)) {
-              (null, null) => const Center(child: CircularProgressIndicator()),
-              (null, final String galat) => Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ShadAlert.destructive(
-                      icon: const Icon(CupertinoIcons.exclamationmark_circle),
-                      title: const Text('Gagal mengunduh rute'),
-                      description: Text(galat),
-                    ),
-                    const SizedBox(height: 12),
-                    ShadButton.outline(
-                      onPressed: _muat,
-                      leading: const Icon(CupertinoIcons.arrow_clockwise),
-                      child: const Text('Coba Lagi'),
-                    ),
-                  ],
-                ),
+            const SizedBox(height: 8),
+            for (final rute in p.rutes) ...[
+              _KartuRute(
+                rute: rute,
+                target: _targetRute(rute),
+                terbaca: _terbacaRute(rute),
+                onTap: () => _bukaRute(rute),
               ),
-              (final RuteSaya p, _) when p.ruteKode == null => Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      CupertinoIcons.map_pin_slash,
-                      size: 40,
-                      color: theme.colorScheme.mutedForeground,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Rute belum ditugaskan ke akun Anda.\n'
-                      'Penugasan rute diatur admin di dashboard web '
-                      '(menu Pencatat) — hubungi admin bila belum ada.',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.muted,
-                    ),
-                  ],
-                ),
-              ),
-              _ =>
-                _tersaring.isEmpty
-                    ? Center(
-                        child: Text(
-                          _kunci.isNotEmpty
-                              ? 'Tidak ada pelanggan yang cocok.'
-                              : _tabSudah
-                              ? 'Belum ada yang dicatat periode ini.'
-                              : 'Semua pelanggan rute sudah dibaca. 🎉',
-                          style: theme.textTheme.muted,
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                        itemCount: _itemDaftar.length,
-                        itemBuilder: (context, i) {
-                          final item = _itemDaftar[i];
-                          if (item is String) {
-                            return Padding(
-                              padding: EdgeInsets.only(
-                                top: i == 0 ? 0 : 14,
-                                bottom: 6,
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    CupertinoIcons.map,
-                                    size: 13,
-                                    color: theme.colorScheme.mutedForeground,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Rute $item',
-                                    style: theme.textTheme.small.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-                          final p = item as PelangganRute;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _BarisPelanggan(
-                              pelanggan: p,
-                              onTap: () => _bukaCatat(p),
-                            ),
-                          );
-                        },
-                      ),
-            },
-          ),
-        ],
-      ),
+              const SizedBox(height: 8),
+            ],
+          ],
+        ),
+      },
     );
   }
 }
 
-class _TombolTab extends StatelessWidget {
-  const _TombolTab({
-    required this.label,
-    required this.aktif,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool aktif;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = ShadTheme.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: aktif ? const Color(AppEmerald.c600) : theme.colorScheme.muted,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: aktif
-                ? const Color(AppEmerald.c600)
-                : theme.colorScheme.border,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: aktif
-                ? const Color(0xFFFFFFFF)
-                : theme.colorScheme.mutedForeground,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _KartuProgres extends StatelessWidget {
-  const _KartuProgres({
+/// Ringkasan lintas rute di atas daftar: total dibaca + antre kirim + waktu
+/// unduh terakhir.
+class _RingkasanCatat extends StatelessWidget {
+  const _RingkasanCatat({
     required this.paket,
     required this.tertunda,
     this.onBukaAntrean,
@@ -422,9 +263,6 @@ class _KartuProgres extends StatelessWidget {
 
   final RuteSaya paket;
   final int tertunda;
-
-  /// Chip "N antre" membuka layar Antrean Upload (baris bermasalah
-  /// kelihatan pesannya di sana).
   final VoidCallback? onBukaAntrean;
 
   @override
@@ -446,9 +284,7 @@ class _KartuProgres extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  paket.rutes.length > 1
-                      ? '${paket.rutes.length} rute'
-                      : (paket.ruteKode ?? 'Rute Anda'),
+                  '${paket.rutes.length} rute',
                   style: const TextStyle(
                     color: Color(0xFFFFFFFF),
                     fontSize: 11,
@@ -497,6 +333,100 @@ class _KartuProgres extends StatelessWidget {
   }
 }
 
+/// Kartu satu rute — ketuk untuk membuka daftar pelanggannya.
+class _KartuRute extends StatelessWidget {
+  const _KartuRute({
+    required this.rute,
+    required this.target,
+    required this.terbaca,
+    required this.onTap,
+  });
+
+  final RuteRingkas rute;
+  final int target;
+  final int terbaca;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final selesai = target > 0 && terbaca >= target;
+    final rasio = target == 0 ? 0.0 : terbaca / target;
+    return GlassPanel(
+      padding: const EdgeInsets.all(14),
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selesai
+                      ? const Color(AppEmerald.c600)
+                      : theme.colorScheme.secondary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  selesai
+                      ? CupertinoIcons.checkmark_seal_fill
+                      : CupertinoIcons.map_fill,
+                  size: 20,
+                  color: selesai
+                      ? const Color(0xFFFFFFFF)
+                      : theme.colorScheme.mutedForeground,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Rute ${rute.kode}',
+                      style: theme.textTheme.small.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (rute.seksiCater != null)
+                      Text(
+                        rute.seksiCater!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.muted.copyWith(fontSize: 11.5),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$terbaca/$target',
+                style: theme.textTheme.small.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: selesai
+                      ? const Color(AppEmerald.c600)
+                      : theme.colorScheme.foreground,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                CupertinoIcons.chevron_right,
+                size: 16,
+                color: theme.colorScheme.mutedForeground,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ShadProgress(value: rasio, color: const Color(AppEmerald.c600)),
+        ],
+      ),
+    );
+  }
+}
+
 class _ChipKecil extends StatelessWidget {
   const _ChipKecil({
     required this.ikon,
@@ -533,92 +463,6 @@ class _ChipKecil extends StatelessWidget {
               color: bahaya ? theme.colorScheme.destructive : null,
               fontWeight: FontWeight.w600,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BarisPelanggan extends StatelessWidget {
-  const _BarisPelanggan({required this.pelanggan, required this.onTap});
-
-  final PelangganRute pelanggan;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = ShadTheme.of(context);
-    final selesai = pelanggan.sudahDicatat;
-    return GlassPanel(
-      padding: const EdgeInsets.all(12),
-      onTap: onTap,
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selesai
-                  ? const Color(AppEmerald.c600)
-                  : theme.colorScheme.secondary,
-              shape: BoxShape.circle,
-            ),
-            child: selesai
-                ? const Icon(
-                    CupertinoIcons.checkmark,
-                    size: 16,
-                    color: Color(0xFFFFFFFF),
-                  )
-                : Text(
-                    '${pelanggan.urutan ?? '-'}',
-                    style: theme.textTheme.small,
-                  ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(pelanggan.nama, style: theme.textTheme.small),
-                const SizedBox(height: 1),
-                Text(
-                  '${pelanggan.nomorLangganan}'
-                  '${pelanggan.nomorMeter == null ? '' : ' · ${pelanggan.nomorMeter}'}'
-                  '${pelanggan.status == null || pelanggan.status == 'AKTIF' ? '' : ' · ${pelanggan.status}'}',
-                  style: theme.textTheme.muted.copyWith(fontSize: 11.5),
-                ),
-                if (pelanggan.alamat != null)
-                  Text(
-                    pelanggan.alamat!,
-                    style: theme.textTheme.muted.copyWith(fontSize: 11.5),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (pelanggan.standLalu != null)
-                Text(
-                  'Lalu: ${pelanggan.standLalu}',
-                  style: theme.textTheme.muted.copyWith(fontSize: 11),
-                ),
-              const SizedBox(height: 2),
-              Icon(
-                selesai
-                    ? CupertinoIcons.checkmark_seal_fill
-                    : CupertinoIcons.chevron_right,
-                size: 16,
-                color: selesai
-                    ? const Color(AppEmerald.c600)
-                    : theme.colorScheme.mutedForeground,
-              ),
-            ],
           ),
         ],
       ),

@@ -10,6 +10,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
+  ArchiveRestore,
   ArrowLeftRight,
   ArrowUpRight,
   BadgeCheck,
@@ -106,6 +107,7 @@ const MENU = [
       { href: "/dashboard/pengaduan", label: "Pengaduan", icon: MessageSquareWarning },
       { href: "/dashboard/laporan-mandiri", label: "Laporan mandiri", icon: Camera },
       { href: "/dashboard/laporan-harian", label: "Laporan harian petugas", icon: ClipboardCheck },
+      { href: "/dashboard/impor-cadangan", label: "Impor cadangan lapangan", icon: ArchiveRestore },
     ],
   },
   {

@@ -22,6 +22,7 @@ import { NotFoundError, ConflictError, BadRequestError, ForbiddenError, isPrisma
 import { paginationQuerySchema, buildSkipTake, buildMeta, buildOrderBy, sortQuery } from "../../lib/pagination"
 import { periodeToDate, dateToPeriode } from "../../lib/periode"
 import { simpanBerkas, BerkasTidakValidError } from "../../lib/storage"
+import JSZip from "jszip"
 
 export const laporanHarianRouter = new Hono()
 
@@ -599,6 +600,114 @@ laporanHarianRouter.post("/batch", requireRole(...ROLE_GROUPS.STAFF_UP), validat
   const hitung = (s: "TERSIMPAN" | "DUPLIKAT" | "GAGAL") => hasil.filter((h) => h.status === s).length
   return ok(c, {
     total: laporan.length,
+    tersimpan: hitung("TERSIMPAN"),
+    duplikat: hitung("DUPLIKAT"),
+    gagal: hitung("GAGAL"),
+    hasil,
+  })
+})
+
+// ── Impor cadangan lapangan (ZIP dari aplikasi petugas → laporan). Dipakai
+// halaman "Impor cadangan" dashboard: petugas mengekspor bundel cadangan
+// (catatan.json + foto stand/segel/rumah/video per pembacaan) dari HP, admin
+// mengunggah ZIP-nya di sini. Server mengurai tiap bundel, menyimpan fotonya
+// (magic bytes divalidasi), lalu membuat LaporanHarianPetugas lewat
+// simpanLaporan() yang SAMA dengan /batch — idempoten (P2002 → DUPLIKAT),
+// jadi mengimpor ulang ZIP yang sama aman. Ini penyelamat bila perangkat/DB
+// lokal rusak sebelum sempat upload normal.
+const IMPOR_MAKS_ZIP_BYTE = 60 * 1024 * 1024
+const IMPOR_MAKS_ENTRI = 1000
+const NAMA_BERKAS_BUNDEL: Record<string, string> = { stand: "stand.jpg", segel: "segel.jpg", rumah: "rumah.jpg", video: "video.mp4" }
+const FIELD_URL_BUNDEL: Record<string, "fotoStandUrl" | "fotoSegelUrl" | "fotoRumahUrl" | "videoUrl"> = {
+  stand: "fotoStandUrl",
+  segel: "fotoSegelUrl",
+  rumah: "fotoRumahUrl",
+  video: "videoUrl",
+}
+
+laporanHarianRouter.post("/import-backup", requireRole(...ROLE_GROUPS.STAFF_UP), async (c) => {
+  const form = await c.req.formData()
+  const berkas = form.get("berkas")
+  if (!(berkas instanceof File)) throw new BadRequestError("Berkas ZIP wajib dilampirkan sebagai field `berkas`.")
+  if (berkas.size > IMPOR_MAKS_ZIP_BYTE) throw new BadRequestError("Ukuran ZIP melebihi 60 MB.")
+
+  const requester = getSessionUser(c)
+  const pencatat = await prisma.pencatat.findUnique({ where: { userId: requester.id }, select: { id: true } })
+  const pencatatIdDefault = pencatat?.id ?? null
+
+  let zip: JSZip
+  try {
+    zip = await JSZip.loadAsync(await berkas.arrayBuffer())
+  } catch {
+    throw new BadRequestError("Berkas bukan ZIP yang valid.")
+  }
+
+  const jalurCatatan = Object.keys(zip.files).filter((p) => p.endsWith("/catatan.json") && p.includes("pembacaan/"))
+  if (jalurCatatan.length === 0) throw new BadRequestError("ZIP tidak memuat bundel pembacaan (tidak ada catatan.json).")
+  if (jalurCatatan.length > IMPOR_MAKS_ENTRI) throw new BadRequestError(`Terlalu banyak pembacaan (maks ${IMPOR_MAKS_ENTRI}).`)
+
+  const hasil: { index: number; nomorLangganan: string; periode: number; status: "TERSIMPAN" | "DUPLIKAT" | "GAGAL"; id?: string; pesan?: string }[] = []
+
+  for (const [index, jalur] of jalurCatatan.entries()) {
+    const folder = jalur.slice(0, jalur.length - "catatan.json".length)
+    let data: Record<string, unknown>
+    try {
+      data = JSON.parse(await zip.files[jalur].async("string")) as Record<string, unknown>
+    } catch {
+      hasil.push({ index, nomorLangganan: "?", periode: 0, status: "GAGAL", pesan: "catatan.json rusak." })
+      continue
+    }
+    const nomorLangganan = String(data.nomorLangganan ?? "")
+    const periode = Number(data.periode ?? 0)
+    const identitas = { index, nomorLangganan, periode }
+
+    try {
+      // Simpan foto/video yang ada di bundel → URL.
+      const urlFoto: Record<string, string> = {}
+      for (const jenis of ["stand", "segel", "rumah", "video"]) {
+        const entri = zip.files[folder + NAMA_BERKAS_BUNDEL[jenis]]
+        if (!entri) continue
+        const buf = await entri.async("arraybuffer")
+        const berkasFoto = new File([buf], NAMA_BERKAS_BUNDEL[jenis], { type: jenis === "video" ? "video/mp4" : "image/jpeg" })
+        try {
+          const simpan = await simpanBerkas(berkasFoto, {
+            prefix: "laporan-harian",
+            namaBerkas: `${periode}_${jenis}_${nomorLangganan}`,
+            subFolder: `${periode}`,
+            jenisMedia: jenis === "video" ? "video" : "foto",
+          })
+          urlFoto[FIELD_URL_BUNDEL[jenis]] = simpan.url
+        } catch (e) {
+          // Berkas foto rusak/tak dikenal → lewati foto itu, laporan tetap
+          // diproses (jangan gagalkan seluruh pembacaan karena satu foto).
+          if (!(e instanceof BerkasTidakValidError)) throw e
+        }
+      }
+
+      // Validasi + koersi via schema yang sama dengan POST / dan /batch;
+      // field asing (ruteKode/namaPetugas/dll) diabaikan Zod.
+      const parsed = createSchema.safeParse({ ...data, ...urlFoto })
+      if (!parsed.success) {
+        hasil.push({ ...identitas, status: "GAGAL", pesan: "Data pembacaan tidak valid / tidak lengkap." })
+        continue
+      }
+      const row = await simpanLaporan(parsed.data, pencatatIdDefault)
+      hasil.push({ ...identitas, status: "TERSIMPAN", id: row.id })
+    } catch (err) {
+      if (isPrismaKnownError(err) && err.code === "P2002") {
+        hasil.push({ ...identitas, status: "DUPLIKAT", pesan: "Laporan periode ini sudah pernah tersimpan." })
+      } else if (isPrismaKnownError(err) && err.code === "P2003") {
+        hasil.push({ ...identitas, status: "GAGAL", pesan: "Referensi pelanggan/pencatat tidak valid." })
+      } else {
+        console.error("[laporan-harian/import-backup] baris gagal:", identitas, err)
+        hasil.push({ ...identitas, status: "GAGAL", pesan: "Terjadi kesalahan menyimpan baris ini." })
+      }
+    }
+  }
+
+  const hitung = (s: "TERSIMPAN" | "DUPLIKAT" | "GAGAL") => hasil.filter((h) => h.status === s).length
+  return ok(c, {
+    total: jalurCatatan.length,
     tersimpan: hitung("TERSIMPAN"),
     duplikat: hitung("DUPLIKAT"),
     gagal: hitung("GAGAL"),

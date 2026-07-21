@@ -3,6 +3,7 @@
 // petugas (ruang kerja pencatat/gangguan) + alur rute baca meter
 // (catat stand), verifikasi, dan tiket gangguan.
 
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/widgets.dart' show Scrollable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -11,6 +12,8 @@ import 'package:shadcn_ui/shadcn_ui.dart' show ShadButton, ShadInput;
 
 import 'package:wipel5/app/petugas_app.dart';
 import 'package:wipel5/app/publik_app.dart';
+import 'package:wipel5/features/staff/baca_meter/rute_repository.dart'
+    show DemoRuteRepository;
 import 'package:wipel5/core/auth/sesi_warga.dart';
 import 'package:wipel5/features/public/langganan/langganan_warga_repository.dart';
 
@@ -132,6 +135,10 @@ void main() {
   });
 
   group('aplikasi petugas', () {
+    // Keadaan demo (rute + antrean upload) statis lintas layar — reset tiap
+    // uji supaya catat di satu uji tidak bocor ke uji berikutnya.
+    setUp(DemoRuteRepository.resetDemo);
+
     testWidgets('portal memisahkan ruang kerja pencatat & gangguan', (
       tester,
     ) async {
@@ -181,7 +188,11 @@ void main() {
         await ketuk(tester, find.text('Pencatat Meter'));
         await ketuk(tester, find.text('Baca Meter'));
 
+        // Langkah 1: pilih rute (DADANG ada di R-042).
         expect(find.textContaining('target'), findsOneWidget);
+        await ketuk(tester, find.text('Rute R-042'));
+
+        // Langkah 2: daftar pelanggan rute R-042, urut nomor urut.
         await tester.scrollUntilVisible(
           find.text('DADANG SUPRIATNA'),
           200,
@@ -202,31 +213,34 @@ void main() {
         );
         await ketuk(tester, find.widgetWithText(ShadButton, 'Simpan'));
 
-        // Alur jalan: setelah tersimpan, layar menawarkan pelanggan
-        // berikutnya yang belum dibaca — kembali ke daftar untuk memeriksa
-        // progres.
+        // Setelah tersimpan, layar menawarkan pelanggan berikutnya — kembali
+        // ke daftar rute untuk memeriksa progres.
         await ketuk(
           tester,
           find.widgetWithText(ShadButton, 'Kembali ke Daftar'),
         );
 
-        // Kembali ke daftar — baris DADANG kini tercatat (progres bertambah).
-        expect(find.text('3 dari 8 target'), findsOneWidget);
+        // Kembali ke daftar pelanggan R-042 — DADANG tercatat (3 dari 5).
+        expect(find.text('3 dari 5 dibaca'), findsOneWidget);
       },
     );
 
     testWidgets(
-      'baca meter multi-rute: daftar dikelompokkan per rute dengan header',
+      'baca meter: rute ditampilkan sebagai kartu pilihan (per rute)',
       (tester) async {
         await tester.pumpWidget(const PetugasApp());
         await tester.pumpAndSettle();
         await ketuk(tester, find.text('Pencatat Meter'));
         await ketuk(tester, find.text('Baca Meter'));
 
-        // Petugas demo memegang 2 rute → badge "2 rute" + header per rute.
+        // Petugas demo memegang 2 rute → badge "2 rute" + satu kartu per rute.
         expect(find.text('2 rute'), findsWidgets);
         expect(find.text('Rute R-042'), findsOneWidget);
         expect(find.text('Rute R-043'), findsOneWidget);
+
+        // Ketuk rute → daftar pelanggannya muncul (urut nomor urut).
+        await ketuk(tester, find.text('Rute R-043'));
+        expect(find.text('NENG SITI AMINAH'), findsOneWidget);
       },
     );
 
@@ -245,6 +259,35 @@ void main() {
       expect(find.text('RINA MARLINA'), findsOneWidget);
       expect(find.text('Diverifikasi'), findsWidgets);
       expect(find.text('Menunggu Verifikasi'), findsWidgets);
+    });
+
+    testWidgets('catat masuk antrean upload (bukan auto-terkirim)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(const PetugasApp());
+      await tester.pumpAndSettle();
+      await ketuk(tester, find.text('Pencatat Meter'));
+      await ketuk(tester, find.text('Baca Meter'));
+      await ketuk(tester, find.text('Rute R-042'));
+      await tester.scrollUntilVisible(
+        find.text('DADANG SUPRIATNA'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await ketuk(tester, find.text('DADANG SUPRIATNA'));
+      await tester.enterText(find.byType(ShadInput).first, '2229');
+      await tester.pumpAndSettle();
+      await ketuk(tester, find.widgetWithText(ShadButton, 'Simpan Hasil Baca'));
+      await ketuk(tester, find.widgetWithText(ShadButton, 'Simpan'));
+      await ketuk(tester, find.widgetWithText(ShadButton, 'Kembali ke Daftar'));
+
+      // Kembali ke daftar rute (tombol back kustom AppScaffold) → hasil catat
+      // menunggu di antrean (chip "1 antre"), tidak terkirim otomatis.
+      await tester.tap(find.byIcon(CupertinoIcons.chevron_left).first);
+      await tester.pumpAndSettle();
+      expect(find.text('1 antre'), findsOneWidget);
+      await ketuk(tester, find.text('1 antre'));
+      expect(find.textContaining('1 laporan menunggu'), findsOneWidget);
     });
 
     testWidgets('upload data kosong menampilkan keadaan aman', (tester) async {

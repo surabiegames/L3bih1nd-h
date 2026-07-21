@@ -176,9 +176,9 @@ class _AntreanUploadScreenState extends State<AntreanUploadScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Foto & video tiap laporan ikut terunggah ulang '
-                          'otomatis. Antrean juga dikirim sendiri setiap '
-                          'kali layar Baca Meter dibuka saat online.',
+                          'Foto & video tiap laporan ikut terunggah otomatis '
+                          'saat dikirim. Hasil catat menunggu di sini sampai '
+                          'Anda menekan Kirim — tidak terunggah sendiri.',
                           style: theme.textTheme.muted.copyWith(fontSize: 11),
                         ),
                       ],

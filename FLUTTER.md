@@ -309,15 +309,22 @@ Semua di bawah `/api/v1`, semua respons memakai envelope §3.
   Perlakukan `TERSIMPAN` **dan** `DUPLIKAT` sebagai sukses (tandai baris
   lokal "sudah terunggah") — DUPLIKAT muncul saat unggah ulang setelah
   sinyal putus. Hanya `GAGAL` yang perlu dicoba lagi/dilaporkan.
-- **Backup & pemulihan (crash-safety)**: tiap catat menulis BUNDEL lokal ke
-  `<AppDocuments>/backup/pembacaan/<periode>/<nomorLangganan>/` berisi
-  `catatan.json` (SELURUH field pembacaan + metadata) + `stand.jpg`/
-  `segel.jpg`/`rumah.jpg`/`video.mp4`, INDEPENDEN dari antrean SQLite. Layar
-  **Cadangan** bisa "Pulihkan ke Antrean" (kembalikan pembacaan yang belum
-  terunggah bila DB lokal hilang) dan "Ekspor ZIP" (bundel → dibagikan).
-  Admin mengimpornya di dashboard web via `POST /laporan-harian/import-backup`
-  (multipart `berkas` = ZIP; server urai → simpan foto → `simpanLaporan`,
-  idempoten DUPLIKAT). Respons ringkas sama bentuk dengan `/batch`.
+- **Backup & pemulihan (crash-safety)**: tiap catat menulis backup ke
+  `<external>/tirtawening/backup/` (`core/services/backup_lokal.dart`),
+  DIPETAKAN PER TIPE dengan nama datar `periode_tipe_nomor` supaya kelihatan &
+  bisa dibuka galeri: `stand/202607_stand_<nomor>.jpg`, `rumah/…`, `segel/…`,
+  `video/…`, plus `catatan/<periode>_catatan.csv` (satu baris teks per
+  pembacaan). Meta penuh untuk restore ada di `.meta/<periode>/<nomor>.json`
+  (INDEPENDEN dari antrean SQLite). Layar **Cadangan** bisa "Pulihkan ke
+  Antrean" (kembalikan pembacaan yang belum terunggah bila DB lokal hilang) dan
+  "Ekspor ZIP" — yang juga MEMPUBLIKASIKAN foto/CSV ke Galeri/File lewat
+  MediaStore (`Pictures/tirtawening/backup/<tipe>`, TANPA izin runtime; Android
+  10+) lalu membagikan ZIP importable. Admin mengimpornya di dashboard web via
+  `POST /laporan-harian/import-backup` (multipart: `berkas` bisa ZIP **atau**
+  berkas lepasan mis. hanya foto rumah; `tipe` berulang = pilih
+  stand/rumah/segel/video/catatan). Server: CSV `catatan` → `simpanLaporan`
+  (idempoten DUPLIKAT); foto → DILAMPIRKAN ke pembacaan yang ada
+  (TANPA_PENCATATAN bila belum dicatat).
 - Verifikasi BERJENJANG V1→V2→V3 (menggantikan `/verify` lama — endpoint
   itu sudah DIHAPUS). Urutan wajib; pembacaan resmi baru terbentuk di V3:
   - `PATCH /laporan-harian/:id/verif1` (SUPERVISOR_UP):

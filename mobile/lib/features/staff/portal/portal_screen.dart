@@ -230,7 +230,7 @@ class _PortalScreenState extends State<PortalScreen> {
                         chips: [
                           _MiniStat(
                             ikon: CupertinoIcons.map_fill,
-                            label: '${a.ruteTerbaca}/${a.ruteTotal} rute',
+                            label: '${a.ruteTerbaca}/${a.ruteTotal} SL',
                           ),
                           _MiniStat(
                             ikon: CupertinoIcons.doc_checkmark_fill,

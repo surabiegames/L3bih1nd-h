@@ -194,11 +194,14 @@ class _DownloadDataScreenState extends State<DownloadDataScreen> {
                       _BarisData(
                         ikon: CupertinoIcons.map_fill,
                         label: 'Rute',
-                        nilai: adaRute ? paket!.ruteKode! : '—',
+                        // Jumlah rute yang DIPETAKAN ke akun ini (bukan satu
+                        // kode) — beberapa rute bisa ditugaskan sekaligus.
+                        nilai: adaRute ? _ringkasRute(paket!) : '—',
                       ),
                       _BarisData(
                         ikon: CupertinoIcons.person_2_fill,
-                        label: 'Pelanggan rute',
+                        // Total pelanggan/SL lintas SEMUA rute (target periode).
+                        label: 'Pelanggan (SL)',
                         nilai: adaRute ? '${paket!.target}' : '—',
                       ),
                       _BarisData(
@@ -272,6 +275,18 @@ class _DownloadDataScreenState extends State<DownloadDataScreen> {
             ),
     );
   }
+}
+
+/// Ringkas jumlah rute yang dipetakan ke akun + kodenya bila ringkas.
+/// Paket lama (satu rute) hanya punya `ruteKode`; paket baru punya daftar
+/// `rutes`. Contoh: "2 · R-042, R-043" atau "5 rute".
+String _ringkasRute(RuteSaya paket) {
+  final kode = paket.rutes.isNotEmpty
+      ? paket.rutes.map((r) => r.kode).toList()
+      : (paket.ruteKode != null ? [paket.ruteKode!] : const <String>[]);
+  if (kode.isEmpty) return '—';
+  if (kode.length <= 3) return '${kode.length} · ${kode.join(', ')}';
+  return '${kode.length} rute';
 }
 
 class _BarisData extends StatelessWidget {

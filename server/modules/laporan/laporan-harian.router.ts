@@ -278,12 +278,20 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
     }
   }
 
-  const rows = pelanggan.map((p, i) => {
+  // Nomor urut fallback dihitung PER RUTE, bukan lintas seluruh beban kerja:
+  // pelanggan tanpa noUrutRute harus bernomor 1..n di dalam rutenya sendiri
+  // (petugas membaca "urutan 1 dari rute R-042"), bukan posisinya di daftar
+  // datar gabungan semua rute. `pelanggan` sudah terurut (rute, lalu
+  // noUrutRute), jadi baris tiap rute kontigu — cukup hitung berjalan per rute.
+  const urutPerRute = new Map<string, number>()
+  const rows = pelanggan.map((p) => {
     const meter = p.meter[0] ?? null
     const riwayat = (meter ? riwayatPerMeter.get(meter.id) : undefined) ?? []
     const bacaan = riwayat[0]
     const laporan = laporanPerNomor.get(p.nomorLangganan)
     const biayaTetap = biayaTetapPerPelanggan.get(p.id) ?? null
+    const seqRute = (urutPerRute.get(p.ruteId ?? "") ?? 0) + 1
+    urutPerRute.set(p.ruteId ?? "", seqRute)
     return {
       pelangganId: p.id,
       nomorLangganan: p.nomorLangganan,
@@ -300,9 +308,9 @@ laporanHarianRouter.get("/rute-saya", requireRole(...ROLE_GROUPS.STAFF_UP), vali
       /// urutan kerja.
       ruteId: p.ruteId,
       ruteKode: ruteInfo.get(p.ruteId!)?.kode ?? null,
-      /// Urutan kunjungan RBM; fallback urutan posisi untuk data lama yang
-      /// belum punya noUrutRute.
-      urutan: p.noUrutRute ?? i + 1,
+      /// Urutan kunjungan RBM; fallback ke posisi DALAM RUTE (bukan lintas
+      /// semua rute) untuk data lama yang belum punya noUrutRute.
+      urutan: p.noUrutRute ?? seqRute,
       noUrutRute: p.noUrutRute,
       meterId: meter?.id ?? null,
       nomorMeter: meter?.nomorMeter ?? null,
@@ -607,109 +615,241 @@ laporanHarianRouter.post("/batch", requireRole(...ROLE_GROUPS.STAFF_UP), validat
   })
 })
 
-// ── Impor cadangan lapangan (ZIP dari aplikasi petugas → laporan). Dipakai
-// halaman "Impor cadangan" dashboard: petugas mengekspor bundel cadangan
-// (catatan.json + foto stand/segel/rumah/video per pembacaan) dari HP, admin
-// mengunggah ZIP-nya di sini. Server mengurai tiap bundel, menyimpan fotonya
-// (magic bytes divalidasi), lalu membuat LaporanHarianPetugas lewat
-// simpanLaporan() yang SAMA dengan /batch — idempoten (P2002 → DUPLIKAT),
-// jadi mengimpor ulang ZIP yang sama aman. Ini penyelamat bila perangkat/DB
-// lokal rusak sebelum sempat upload normal.
-const IMPOR_MAKS_ZIP_BYTE = 60 * 1024 * 1024
-const IMPOR_MAKS_ENTRI = 1000
-const NAMA_BERKAS_BUNDEL: Record<string, string> = { stand: "stand.jpg", segel: "segel.jpg", rumah: "rumah.jpg", video: "video.mp4" }
-const FIELD_URL_BUNDEL: Record<string, "fotoStandUrl" | "fotoSegelUrl" | "fotoRumahUrl" | "videoUrl"> = {
+// ── Impor cadangan lapangan (berkas backup aplikasi petugas → laporan).
+// Dipakai halaman "Impor cadangan" dashboard.
+//
+// Format backup baru (per-tipe, nama datar `periode_tipe_nomor`) — sesuai
+// core/services/backup_lokal.dart:
+//   stand/202607_stand_00700800867.jpg  rumah/…  segel/…  video/…
+//   catatan/202607_catatan.csv          # satu baris teks per pembacaan
+//
+// Admin BEBAS memilih tipe yang diimpor (field `tipe`, boleh berulang), dan
+// mengunggah ZIP penuh ATAU berkas lepasan (mis. hanya foto rumah). Dua kelas
+// entri diproses beda:
+//  - `catatan` (CSV) → MEMBUAT LaporanHarianPetugas lewat simpanLaporan() yang
+//    sama dengan /batch (idempoten: P2002 → DUPLIKAT). Ini sumber angka
+//    stand/kondisi.
+//  - foto/video (`stand|segel|rumah|video`) → MELAMPIRKAN URL ke pembacaan
+//    yang SUDAH ADA pada (nomorLangganan, periode) itu. Bila pembacaannya
+//    belum ada (foto diimpor tanpa catatan) → status TANPA_PENCATATAN, bukan
+//    gagal — impor catatannya lebih dulu lalu ulangi.
+// Catatan diproses SEBELUM foto, jadi mengimpor keduanya sekaligus langsung
+// nyambung.
+const IMPOR_MAKS_ZIP_BYTE = 80 * 1024 * 1024
+const IMPOR_MAKS_ENTRI = 5000
+const TIPE_FOTO = ["stand", "segel", "rumah", "video"] as const
+const TIPE_IMPOR = [...TIPE_FOTO, "catatan"] as const
+type TipeImpor = (typeof TIPE_IMPOR)[number]
+const FIELD_URL_FOTO: Record<string, "fotoStandUrl" | "fotoSegelUrl" | "fotoRumahUrl" | "videoUrl"> = {
   stand: "fotoStandUrl",
   segel: "fotoSegelUrl",
   rumah: "fotoRumahUrl",
   video: "videoUrl",
 }
+// `periode_tipe_nomor.ext` pada nama-dasar berkas (abaikan prefix folder ZIP).
+const POLA_FOTO = /(?:^|\/)(\d{6})_(stand|segel|rumah|video)_(\d{6,20})\.(jpe?g|png|webp|mp4)$/i
+
+type StatusImpor = "TERSIMPAN" | "DUPLIKAT" | "DILAMPIRKAN" | "TANPA_PENCATATAN" | "GAGAL"
+interface BarisHasil {
+  index: number
+  jenis: TipeImpor
+  nomorLangganan: string
+  periode: number
+  status: StatusImpor
+  id?: string
+  pesan?: string
+}
+
+/// Entri sumber terunifikasi: berasal dari file lepasan atau isi ZIP.
+interface EntriImpor {
+  nama: string
+  buffer: () => Promise<ArrayBuffer>
+  teks: () => Promise<string>
+}
+
+/// Pengurai CSV RFC-4180 ringkas (tangani kutip, koma dalam kutip, CRLF).
+function uraiCsv(teks: string): string[][] {
+  const rows: string[][] = []
+  let field = ""
+  let row: string[] = []
+  let inQ = false
+  for (let i = 0; i < teks.length; i++) {
+    const ch = teks[i]
+    if (inQ) {
+      if (ch === '"') {
+        if (teks[i + 1] === '"') { field += '"'; i++ } else inQ = false
+      } else field += ch
+      continue
+    }
+    if (ch === '"') inQ = true
+    else if (ch === ",") { row.push(field); field = "" }
+    else if (ch === "\r") { /* abaikan */ }
+    else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = "" }
+    else field += ch
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row) }
+  return rows.filter((r) => r.some((v) => v.trim() !== ""))
+}
 
 laporanHarianRouter.post("/import-backup", requireRole(...ROLE_GROUPS.STAFF_UP), async (c) => {
   const form = await c.req.formData()
-  const berkas = form.get("berkas")
-  if (!(berkas instanceof File)) throw new BadRequestError("Berkas ZIP wajib dilampirkan sebagai field `berkas`.")
-  if (berkas.size > IMPOR_MAKS_ZIP_BYTE) throw new BadRequestError("Ukuran ZIP melebihi 60 MB.")
+  const berkasMasuk = form.getAll("berkas").filter((f): f is File => f instanceof File)
+  if (berkasMasuk.length === 0) throw new BadRequestError("Lampirkan minimal satu berkas (ZIP atau foto/CSV) di field `berkas`.")
+
+  // Tipe yang dipilih admin (boleh berulang); kosong = semua tipe.
+  const tipePilih = new Set(
+    form.getAll("tipe").map(String).filter((t): t is TipeImpor => (TIPE_IMPOR as readonly string[]).includes(t)),
+  )
+  const aktif = (t: TipeImpor) => tipePilih.size === 0 || tipePilih.has(t)
 
   const requester = getSessionUser(c)
   const pencatat = await prisma.pencatat.findUnique({ where: { userId: requester.id }, select: { id: true } })
   const pencatatIdDefault = pencatat?.id ?? null
 
-  let zip: JSZip
-  try {
-    zip = await JSZip.loadAsync(await berkas.arrayBuffer())
-  } catch {
-    throw new BadRequestError("Berkas bukan ZIP yang valid.")
+  // ── Kumpulkan entri dari semua berkas (ZIP di-flatten, lepasan apa adanya).
+  const entri: EntriImpor[] = []
+  let totalByte = 0
+  for (const f of berkasMasuk) {
+    totalByte += f.size
+    if (totalByte > IMPOR_MAKS_ZIP_BYTE) throw new BadRequestError("Total ukuran unggahan melebihi 80 MB.")
+    const isZip = f.name.toLowerCase().endsWith(".zip") || f.type.includes("zip")
+    if (isZip) {
+      let zip: JSZip
+      try {
+        zip = await JSZip.loadAsync(await f.arrayBuffer())
+      } catch {
+        throw new BadRequestError(`Berkas "${f.name}" bukan ZIP yang valid.`)
+      }
+      for (const jalur of Object.keys(zip.files)) {
+        const item = zip.files[jalur]
+        if (item.dir) continue
+        entri.push({ nama: jalur, buffer: () => item.async("arraybuffer"), teks: () => item.async("string") })
+      }
+    } else {
+      entri.push({ nama: f.name, buffer: () => f.arrayBuffer(), teks: () => f.text() })
+    }
+  }
+  if (entri.length > IMPOR_MAKS_ENTRI) throw new BadRequestError(`Terlalu banyak berkas (maks ${IMPOR_MAKS_ENTRI}).`)
+
+  // ── Klasifikasi entri: CSV catatan vs foto/video (dari nama-dasar).
+  const entriCsv = entri.filter((e) => /(?:^|\/)catatan\//i.test(e.nama) || /_catatan\.csv$/i.test(e.nama))
+  const entriFoto: { e: EntriImpor; periode: number; jenis: string; nomor: string }[] = []
+  for (const e of entri) {
+    const m = POLA_FOTO.exec(e.nama)
+    if (m) entriFoto.push({ e, periode: Number(m[1]), jenis: m[2].toLowerCase(), nomor: m[3] })
+  }
+  if (entriCsv.length === 0 && entriFoto.length === 0) {
+    throw new BadRequestError("Tidak ada berkas yang dikenali (nama harus `periode_tipe_nomor.jpg` atau CSV catatan).")
   }
 
-  const jalurCatatan = Object.keys(zip.files).filter((p) => p.endsWith("/catatan.json") && p.includes("pembacaan/"))
-  if (jalurCatatan.length === 0) throw new BadRequestError("ZIP tidak memuat bundel pembacaan (tidak ada catatan.json).")
-  if (jalurCatatan.length > IMPOR_MAKS_ENTRI) throw new BadRequestError(`Terlalu banyak pembacaan (maks ${IMPOR_MAKS_ENTRI}).`)
+  const hasil: BarisHasil[] = []
+  let idx = 0
 
-  const hasil: { index: number; nomorLangganan: string; periode: number; status: "TERSIMPAN" | "DUPLIKAT" | "GAGAL"; id?: string; pesan?: string }[] = []
-
-  for (const [index, jalur] of jalurCatatan.entries()) {
-    const folder = jalur.slice(0, jalur.length - "catatan.json".length)
-    let data: Record<string, unknown>
-    try {
-      data = JSON.parse(await zip.files[jalur].async("string")) as Record<string, unknown>
-    } catch {
-      hasil.push({ index, nomorLangganan: "?", periode: 0, status: "GAGAL", pesan: "catatan.json rusak." })
-      continue
-    }
-    const nomorLangganan = String(data.nomorLangganan ?? "")
-    const periode = Number(data.periode ?? 0)
-    const identitas = { index, nomorLangganan, periode }
-
-    try {
-      // Simpan foto/video yang ada di bundel → URL.
-      const urlFoto: Record<string, string> = {}
-      for (const jenis of ["stand", "segel", "rumah", "video"]) {
-        const entri = zip.files[folder + NAMA_BERKAS_BUNDEL[jenis]]
-        if (!entri) continue
-        const buf = await entri.async("arraybuffer")
-        const berkasFoto = new File([buf], NAMA_BERKAS_BUNDEL[jenis], { type: jenis === "video" ? "video/mp4" : "image/jpeg" })
-        try {
-          const simpan = await simpanBerkas(berkasFoto, {
-            prefix: "laporan-harian",
-            namaBerkas: `${periode}_${jenis}_${nomorLangganan}`,
-            subFolder: `${periode}`,
-            jenisMedia: jenis === "video" ? "video" : "foto",
-          })
-          urlFoto[FIELD_URL_BUNDEL[jenis]] = simpan.url
-        } catch (e) {
-          // Berkas foto rusak/tak dikenal → lewati foto itu, laporan tetap
-          // diproses (jangan gagalkan seluruh pembacaan karena satu foto).
-          if (!(e instanceof BerkasTidakValidError)) throw e
-        }
-      }
-
-      // Validasi + koersi via schema yang sama dengan POST / dan /batch;
-      // field asing (ruteKode/namaPetugas/dll) diabaikan Zod.
-      const parsed = createSchema.safeParse({ ...data, ...urlFoto })
-      if (!parsed.success) {
-        hasil.push({ ...identitas, status: "GAGAL", pesan: "Data pembacaan tidak valid / tidak lengkap." })
+  // ── 1) Catatan (CSV) → buat pembacaan. Header baris pertama memetakan kolom.
+  if (aktif("catatan")) {
+    for (const e of entriCsv) {
+      let baris: string[][]
+      try {
+        baris = uraiCsv(await e.teks())
+      } catch {
+        hasil.push({ index: idx++, jenis: "catatan", nomorLangganan: "?", periode: 0, status: "GAGAL", pesan: `CSV "${e.nama}" gagal dibaca.` })
         continue
       }
-      const row = await simpanLaporan(parsed.data, pencatatIdDefault)
-      hasil.push({ ...identitas, status: "TERSIMPAN", id: row.id })
-    } catch (err) {
-      if (isPrismaKnownError(err) && err.code === "P2002") {
-        hasil.push({ ...identitas, status: "DUPLIKAT", pesan: "Laporan periode ini sudah pernah tersimpan." })
-      } else if (isPrismaKnownError(err) && err.code === "P2003") {
-        hasil.push({ ...identitas, status: "GAGAL", pesan: "Referensi pelanggan/pencatat tidak valid." })
-      } else {
-        console.error("[laporan-harian/import-backup] baris gagal:", identitas, err)
-        hasil.push({ ...identitas, status: "GAGAL", pesan: "Terjadi kesalahan menyimpan baris ini." })
+      if (baris.length < 2) continue
+      const header = baris[0].map((h) => h.trim())
+      for (const kolom of baris.slice(1)) {
+        const obj: Record<string, string> = {}
+        header.forEach((h, i) => {
+          const v = (kolom[i] ?? "").trim()
+          if (v !== "") obj[h] = v
+        })
+        const nomorLangganan = obj.nomorLangganan ?? ""
+        const periode = Number(obj.periode ?? 0)
+        const identitas = { index: idx++, jenis: "catatan" as const, nomorLangganan, periode }
+        // isSegel di CSV berupa teks "true"/"false"; createSchema mengharap
+        // boolean asli (bukan z.coerce), jadi dikonversi sebelum validasi.
+        const input: Record<string, unknown> = { ...obj }
+        if ("isSegel" in obj) input.isSegel = obj.isSegel === "true" || obj.isSegel === "1"
+        // Tautkan ke Pelanggan lewat nomorLangganan (CSV tidak membawa
+        // pelangganId) supaya pembacaan tertaut benar (snapshot nama/alamat,
+        // jarak GPS, alur verifikasi) — bukan baris orphan.
+        if (!input.pelangganId && nomorLangganan) {
+          const p = await prisma.pelanggan.findFirst({
+            where: { nomorLangganan, deletedAt: null },
+            select: { id: true },
+          })
+          if (p) input.pelangganId = p.id
+        }
+        const parsed = createSchema.safeParse(input)
+        if (!parsed.success) {
+          hasil.push({ ...identitas, status: "GAGAL", pesan: "Baris catatan tidak valid / stand tidak lengkap." })
+          continue
+        }
+        try {
+          const row = await simpanLaporan(parsed.data, pencatatIdDefault)
+          hasil.push({ ...identitas, status: "TERSIMPAN", id: row.id })
+        } catch (err) {
+          if (isPrismaKnownError(err) && err.code === "P2002") {
+            hasil.push({ ...identitas, status: "DUPLIKAT", pesan: "Pembacaan periode ini sudah ada." })
+          } else if (isPrismaKnownError(err) && err.code === "P2003") {
+            hasil.push({ ...identitas, status: "GAGAL", pesan: "Referensi pelanggan/pencatat tidak valid." })
+          } else {
+            console.error("[import-backup] catatan gagal:", identitas, err)
+            hasil.push({ ...identitas, status: "GAGAL", pesan: "Terjadi kesalahan menyimpan baris ini." })
+          }
+        }
       }
     }
   }
 
-  const hitung = (s: "TERSIMPAN" | "DUPLIKAT" | "GAGAL") => hasil.filter((h) => h.status === s).length
+  // ── 2) Foto/video → LAMPIRKAN ke pembacaan yang sudah ada (nomor, periode).
+  for (const { e, periode, jenis, nomor } of entriFoto) {
+    if (!aktif(jenis as TipeImpor)) continue
+    const identitas = { index: idx++, jenis: jenis as TipeImpor, nomorLangganan: nomor, periode }
+    try {
+      const buf = await e.buffer()
+      const berkasFoto = new File([buf], `${periode}_${jenis}_${nomor}.${jenis === "video" ? "mp4" : "jpg"}`, {
+        type: jenis === "video" ? "video/mp4" : "image/jpeg",
+      })
+      let url: string
+      try {
+        const simpan = await simpanBerkas(berkasFoto, {
+          prefix: "laporan-harian",
+          namaBerkas: `${periode}_${jenis}_${nomor}`,
+          subFolder: `${periode}`,
+          jenisMedia: jenis === "video" ? "video" : "foto",
+        })
+        url = simpan.url
+      } catch (err) {
+        if (err instanceof BerkasTidakValidError) {
+          hasil.push({ ...identitas, status: "GAGAL", pesan: "Berkas foto/video rusak atau tak dikenal." })
+          continue
+        }
+        throw err
+      }
+      // Lampirkan ke pembacaan yang ada — tanpa membuat baris baru.
+      const upd = await prisma.laporanHarianPetugas.updateMany({
+        where: { nomorLangganan: nomor, periode },
+        data: { [FIELD_URL_FOTO[jenis]]: url },
+      })
+      hasil.push(
+        upd.count > 0
+          ? { ...identitas, status: "DILAMPIRKAN" }
+          : { ...identitas, status: "TANPA_PENCATATAN", pesan: "Belum ada pencatatan periode ini — impor catatannya dulu." },
+      )
+    } catch (err) {
+      console.error("[import-backup] foto gagal:", identitas, err)
+      hasil.push({ ...identitas, status: "GAGAL", pesan: "Terjadi kesalahan memproses berkas ini." })
+    }
+  }
+
+  const hitung = (s: StatusImpor) => hasil.filter((h) => h.status === s).length
   return ok(c, {
-    total: jalurCatatan.length,
+    total: hasil.length,
     tersimpan: hitung("TERSIMPAN"),
     duplikat: hitung("DUPLIKAT"),
+    dilampirkan: hitung("DILAMPIRKAN"),
+    tanpaPencatatan: hitung("TANPA_PENCATATAN"),
     gagal: hitung("GAGAL"),
     hasil,
   })

@@ -74,12 +74,19 @@ class _CadanganScreenState extends State<CadanganScreen> {
       _info = null;
     });
     try {
+      // Publikasikan dulu ke Galeri/File lewat MediaStore (folder
+      // tirtawening/backup, tanpa izin) — inilah yang membuat foto TERLIHAT
+      // & bisa dibuka; lalu bagikan ZIP untuk diimpor di dashboard web.
+      final nGaleri = await BackupLokal.instance.publikasiKeGaleri();
       final path = await BackupLokal.instance.eksporZip();
       if (!mounted) return;
       if (path == null) {
         setState(() {
           _sibuk = false;
-          _info = 'Belum ada data cadangan untuk diekspor.';
+          _info = nGaleri > 0
+              ? '$nGaleri berkas tersalin ke Galeri (Pictures/tirtawening/'
+                    'backup), tapi tidak ada bundel untuk ZIP.'
+              : 'Belum ada data cadangan untuk diekspor.';
         });
         return;
       }
@@ -89,7 +96,15 @@ class _CadanganScreenState extends State<CadanganScreen> {
           text: 'Cadangan hasil baca meter (impor di dashboard web).',
         ),
       );
-      if (mounted) setState(() => _sibuk = false);
+      if (mounted) {
+        setState(() {
+          _sibuk = false;
+          _info = nGaleri > 0
+              ? '$nGaleri foto/catatan tersalin ke Galeri (folder '
+                    'tirtawening/backup) + ZIP dibagikan.'
+              : null;
+        });
+      }
     } on Object {
       if (mounted) {
         setState(() {
@@ -168,7 +183,7 @@ class _CadanganScreenState extends State<CadanganScreen> {
                           ),
                         ),
                         SelectableText(
-                          '${_lokasi!}/pembacaan',
+                          _lokasi!,
                           style: theme.textTheme.muted.copyWith(
                             fontSize: 10.5,
                             fontFamily: 'monospace',

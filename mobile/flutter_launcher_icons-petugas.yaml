@@ -1,0 +1,16 @@
+# Ikon launcher aplikasi PETUGAS (Tirtawening Petugas).
+# Jalankan: dart run flutter_launcher_icons -f flutter_launcher_icons-petugas.yaml
+#
+# Logo & bentuk sama dengan app publik (satu identitas perusahaan) — latar
+# BIRU asli logo (#0F75BC) yang membedakannya sekilas dari app pelanggan
+# (latar putih) di home screen/app switcher, tanpa memutus keluarga visual.
+#
+# ios: false SENGAJA — lihat catatan di flutter_launcher_icons-publik.yaml:
+# proyek ini belum di-scaffold dengan platform iOS.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icons/petugas.png"
+  adaptive_icon_background: "#0F75BC"
+  adaptive_icon_foreground: "assets/icons/petugas_fg.png"
+  remove_alpha_ios: true

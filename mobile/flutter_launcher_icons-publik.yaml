@@ -1,0 +1,22 @@
+# Ikon launcher aplikasi PUBLIK (Tirtawening).
+# Jalankan: dart run flutter_launcher_icons -f flutter_launcher_icons-publik.yaml
+#
+# Warna & bentuk mengikuti logo resmi perusahaan (public/images/logo.png,
+# disalin ke assets/icons/ lewat scripts/generate_launcher_icons.py):
+# hijau/biru/putih, gaya flat tanpa gradien/drop-shadow ala ikon macOS —
+# bukan glyph droplet generik yang dipakai sebelumnya. Latar PUTIH: warna
+# korporat, dan tidak berebut kontras dengan hijau/biru/merah pada logo.
+#
+# ios: false SENGAJA — proyek Flutter ini belum pernah di-scaffold dengan
+# platform iOS (tidak ada folder ios/, cek .metadata), jadi generator akan
+# gagal keras mencari ios/Runner.xcodeproj yang tidak ada. Set true SETELAH
+# `flutter create --platforms=ios .` dijalankan dengan sengaja oleh manusia
+# (butuh keputusan: build iOS perlu Xcode/macOS, bukan keputusan sepihak
+# dari perubahan ikon).
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icons/publik.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icons/publik_fg.png"
+  remove_alpha_ios: true

@@ -1,0 +1,32 @@
+# Stub LOKAL pengganti flutter_secure_storage_linux (dipasang lewat
+# dependency_overrides di pubspec aplikasi — nama paket HARUS sama dengan
+# paket yang digantikan).
+#
+# KENAPA ADA: implementasi resmi Linux menuntut library sistem
+# libsecret-1-dev saat build (CMake gagal bila tidak ada) — dinding yang
+# harus dipanjat setiap dev baru, padahal build Linux desktop di proyek ini
+# HANYA untuk pengembangan; target produksi aplikasi ini Android (Keystore
+# asli, tidak tersentuh stub ini — override hanya mengganti paket platform
+# linux). Stub menyimpan ke berkas JSON ber-permission 0600 di XDG data dir
+# — cukup untuk dev, dan JANGAN merilis build Linux desktop ke pengguna
+# nyata dengan stub ini.
+name: flutter_secure_storage_linux
+description: Stub dev-only tanpa libsecret untuk build Linux desktop.
+version: 99.0.0-stub
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_secure_storage_platform_interface: ^2.0.0
+
+flutter:
+  plugin:
+    implements: flutter_secure_storage
+    platforms:
+      linux:
+        dartPluginClass: FlutterSecureStorageLinuxStub

@@ -1,0 +1,121 @@
+/// 4 Divisi utama PERUMDA Tirtawening.
+/// Diisi via seed: PELAYANAN, TEHNIK, UMUM, UTAMA.
+model Divisi {
+  id        String     @id @default(cuid())
+  kode      KodeDivisi @unique
+  nama      String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  bagian    Bagian[]
+  users     User[]
+
+  @@map("divisi")
+}
+
+model Bagian {
+  id          String      @id @default(cuid())
+  kode        String      @unique
+  nama        String
+  /// Kepala bagian = SENIOR_MANAGER di PELAYANAN, MANAGER di TEHNIK/UMUM.
+  /// Bersifat dokumentatif — tidak ditegakkan sebagai constraint database.
+  levelKepala Role        @default(SENIOR_MANAGER)
+  divisiId    String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  divisi      Divisi      @relation(fields: [divisiId], references: [id])
+  subBagian   SubBagian[]
+  users       User[]
+
+  @@index([divisiId])
+  @@map("bagian")
+}
+
+/// SubBagian di dalam Bagian.
+/// Contoh di PELAYANAN/Wilayah N: "Pencatatan Meter", "Sub Zona",
+/// "Langganan", "NRW".
+/// Contoh di TEHNIK/Produksi 1: "Operator Pengolahan & Intake",
+/// "Mekanikal Engineering", "Bagian Perpipaan".
+/// Contoh di TEHNIK/Produksi 2: "Operator Pengolahan & Intake",
+/// "Sumur Bor", "Mata Air".
+model SubBagian {
+  id        String   @id @default(cuid())
+  kode      String   @unique
+  nama      String
+  bagianId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bagian    Bagian   @relation(fields: [bagianId], references: [id])
+  users     User[]
+
+  @@index([bagianId])
+  @@map("sub_bagian")
+}
+
+/// Jembatan nama petugas lapangan (kd_petugas di CSV legacy, mis. "IWAN",
+/// "DADANG") ke akun User sistem. kd_petugas "-" -> pencatatId null di
+/// laporan (petugas tidak diketahui). Dipisah dari User karena riwayat
+/// pencatatan lama tidak selalu punya akun sistem.
+model Pencatat {
+  id             String                 @id @default(cuid())
+  /// Nama persis seperti di CSV setelah normalisasi (UPPER + TRIM).
+  /// Ini yang dipakai sebagai lookup key saat import.
+  namaLapangan   String                 @unique
+  namaLengkap    String?
+  nip            String?
+  /// Variasi penulisan lain yang merujuk ke orang yang sama.
+  /// Disimpan sebagai string JSON array: ["iwan","IWAN SURYANA","iwan s"]
+  /// Digunakan saat normalisasi data lama.
+  aliasLain      String?
+  /// Link ke akun User sistem. Nullable — pencatat lama boleh ada tanpa
+  /// akun User.
+  userId         String?                @unique
+  isAktif        Boolean                @default(true)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  /// Rute Baca Meter (RBM) yang sedang dipegang pencatat ini — dasar
+  /// endpoint mobile `GET /laporan-harian/rute-saya`. Nullable: pencatat
+  /// lama/nonaktif boleh tanpa rute; penugasan diatur dari dashboard web
+  /// (PATCH /pencatat/:id). SENGAJA bukan @unique — satu rute boleh
+  /// dipegang lebih dari satu pencatat (pembagian beban / pengganti cuti).
+  ruteId         String?
+  laporanHarian  LaporanHarianPetugas[]
+  pembacaanMeter PembacaanMeter[]
+  rute           Rute?                  @relation(fields: [ruteId], references: [id])
+  user           User?                  @relation(fields: [userId], references: [id])
+
+  @@index([namaLapangan])
+  @@index([ruteId])
+  @@map("pencatat")
+}
+
+/// Target kinerja bulanan/tahunan per wilayah distribusi & seksi catat —
+/// dipakai dashboard analitik untuk membandingkan realisasi (Tagihan,
+/// MutasiPelanggan) terhadap target.
+model TargetKinerja {
+  id                  String       @id @default(cuid())
+  tahun               Int
+  /// Null = target tahunan (bukan bulanan).
+  bulan               Int?
+  targetKubikasi      Decimal      @default(0)
+  targetSambunganBaru Int          @default(0)
+  seksiCaterId        String?
+  wilayahDistId       String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  seksiCater          SeksiCater?  @relation(fields: [seksiCaterId], references: [id])
+  wilayahDist         WilayahDist? @relation(fields: [wilayahDistId], references: [id])
+
+  @@index([tahun, bulan])
+  @@index([seksiCaterId])
+  @@index([wilayahDistId])
+  @@map("target_kinerja")
+}
+
+/// 4 Divisi utama PERUMDA Tirtawening Kota Bandung.
+/// UTAMA = Direktorat Utama (kantor Direksi).
+enum KodeDivisi {
+  PELAYANAN
+  TEHNIK
+  UMUM
+  UTAMA
+}

@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Publik (real backend)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_publik.dart",
+      "args": ["--dart-define=API_BASE_URL=http://localhost:3000"]
+    },
+    {
+      "name": "Petugas (real backend)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_petugas.dart",
+      "args": ["--dart-define=API_BASE_URL=http://localhost:3000"]
+    },
+    {
+      "name": "Publik (mode demo)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_publik.dart"
+    },
+    {
+      "name": "Petugas (mode demo)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_petugas.dart"
+    }
+  ]
+}

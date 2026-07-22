@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ProgressNavigasi } from "@/components/providers/progress-navigasi";
 
 const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
@@ -41,6 +42,10 @@ export default function RootLayout({
           // bersamaan saat tema berganti dan terlihat seperti glitch.
           disableTransitionOnChange
         >
+          {/* Bilah progres navigasi — indikator "penghubung" di puncak layar
+              pada setiap perpindahan halaman. Di luar TooltipProvider supaya
+              tak terpengaruh remount konten. */}
+          <ProgressNavigasi />
           <TooltipProvider>{children}</TooltipProvider>
           <Toaster />
         </ThemeProvider>

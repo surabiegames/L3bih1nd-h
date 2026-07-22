@@ -121,9 +121,12 @@ export function PapanPengaduan({ initialQ }: { initialQ?: string }) {
   }, [muatStat]);
 
   return (
-    <div className="flex flex-col gap-4">
+    // Rantai tinggi penuh: kartu statistik shrink-0, tabel mengisi sisa
+    // (flex-1 min-h-0) dengan gulir-internal AG Grid — konsisten dengan
+    // halaman tabel lain.
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {stat && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Kartu ikon={Inbox} label="Belum ditugaskan" nilai={stat.belumDitugaskan} nada="text-blue-500" />
           <Kartu ikon={TimerOff} label="Lewat tenggat" nilai={stat.melanggarSla} nada="text-red-500" />
           <Kartu
@@ -150,43 +153,44 @@ export function PapanPengaduan({ initialQ }: { initialQ?: string }) {
         </div>
       )}
 
-      <DataGrid
-        judul="Pengaduan Warga"
-        endpoint="/pengaduan"
-        columnDefs={KOLOM}
-        searchParam="q"
-        searchPlaceholder="Cari judul / tiket…"
-        initialSearch={initialQ}
-        // DataGrid mengoper baris sebagai Record<string, unknown> (ia tidak
-        // tahu bentuk data tiap endpoint) — `id` dibaca langsung, bukan
-        // lewat cast ke PengaduanBaris yang cuma menipu pemeriksa tipe.
-        onRowClicked={(row) => {
-          if (typeof row.id === "string") router.push(`/dashboard/pengaduan/${row.id}`)
-        }}
-        filters={[
-          {
-            param: "status",
-            label: "Status",
-            opsi: Object.entries(LABEL_STATUS_PENGADUAN).map(([value, label]) => ({ value, label })),
-          },
-          {
-            param: "prioritas",
-            label: "Prioritas",
-            opsi: Object.entries(LABEL_PRIORITAS_PENGADUAN).map(([value, label]) => ({ value, label })),
-          },
-          {
-            param: "jenis",
-            label: "Jenis",
-            opsi: Object.entries(LABEL_JENIS_PENGADUAN).map(([value, label]) => ({ value, label })),
-          },
-          {
-            param: "melanggarSla",
-            label: "SLA",
-            opsi: [{ value: "true", label: "Lewat tenggat" }],
-          },
-        ]}
-      />
-
+      <div className="min-h-0 min-w-0 flex-1">
+        <DataGrid
+          judul="Pengaduan Warga"
+          endpoint="/pengaduan"
+          columnDefs={KOLOM}
+          searchParam="q"
+          searchPlaceholder="Cari judul / tiket…"
+          initialSearch={initialQ}
+          // DataGrid mengoper baris sebagai Record<string, unknown> (ia tidak
+          // tahu bentuk data tiap endpoint) — `id` dibaca langsung, bukan
+          // lewat cast ke PengaduanBaris yang cuma menipu pemeriksa tipe.
+          onRowClicked={(row) => {
+            if (typeof row.id === "string") router.push(`/dashboard/pengaduan/${row.id}`)
+          }}
+          filters={[
+            {
+              param: "status",
+              label: "Status",
+              opsi: Object.entries(LABEL_STATUS_PENGADUAN).map(([value, label]) => ({ value, label })),
+            },
+            {
+              param: "prioritas",
+              label: "Prioritas",
+              opsi: Object.entries(LABEL_PRIORITAS_PENGADUAN).map(([value, label]) => ({ value, label })),
+            },
+            {
+              param: "jenis",
+              label: "Jenis",
+              opsi: Object.entries(LABEL_JENIS_PENGADUAN).map(([value, label]) => ({ value, label })),
+            },
+            {
+              param: "melanggarSla",
+              label: "SLA",
+              opsi: [{ value: "true", label: "Lewat tenggat" }],
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }

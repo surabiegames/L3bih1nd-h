@@ -141,3 +141,53 @@
     @apply font-sans;
     }
 }
+
+/* Scrollbar kustom: tipis & kotak (border-radius: 0) — senada dengan
+   --radius: 0 yang sudah dipakai di seluruh proyek ini. Dua cara pakai:
+   1) Global — otomatis berlaku di SEMUA elemen yang bisa discroll.
+   2) Class `.scrollbar-tipis` — kalau nanti mau dibatasi ke elemen
+      tertentu saja, ganti selector "*" di bawah jadi ".scrollbar-tipis".
+   AG Grid dikecualikan secara khusus lewat .ag-body-viewport karena ia
+   mengelola scroll-nya sendiri lewat elemen internal, tidak ikut
+   selector "*" yang sama seperti elemen HTML biasa. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 0;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.ag-body-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.ag-body-viewport::-webkit-scrollbar,
+.ag-header-container::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.ag-body-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ag-body-viewport::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 0;
+}
+.ag-body-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}

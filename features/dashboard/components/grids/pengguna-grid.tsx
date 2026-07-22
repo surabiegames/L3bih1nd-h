@@ -53,7 +53,6 @@ export function PenggunaGrid() {
           opsi: Object.entries(LABEL_STATUS_USER).map(([value, label]) => ({ value, label })),
         },
       ]}
-      tinggiClassName="h-[540px]"
     />
   )
 }

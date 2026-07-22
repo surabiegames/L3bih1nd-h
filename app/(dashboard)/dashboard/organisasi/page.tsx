@@ -16,23 +16,27 @@ export default function OrganisasiPage() {
       judul="Organisasi & petugas"
       deskripsi="Hierarki Divisi → Bagian → Sub-bagian, serta pemetaan nama petugas lapangan ke akun sistem."
     >
-      <Tabs defaultValue="divisi">
-        <TabsList>
+      {/* full-height: Tabs mengisi wilayah HalamanDasbor, daftar tab shrink-0,
+          konten tab (min-h-0 flex-1) memberi tinggi pasti ke grid di dalamnya
+          sehingga tabelnya mengisi & memakai gulir-internal — konsisten dengan
+          halaman tabel lain, bukan lagi dipatok h-[480px]. */}
+      <Tabs defaultValue="divisi" className="flex h-full min-h-0 flex-col">
+        <TabsList className="shrink-0">
           <TabsTrigger value="divisi">Divisi</TabsTrigger>
           <TabsTrigger value="bagian">Bagian</TabsTrigger>
           <TabsTrigger value="sub-bagian">Sub-bagian</TabsTrigger>
           <TabsTrigger value="pencatat">Pencatat</TabsTrigger>
         </TabsList>
-        <TabsContent value="divisi" className="mt-4">
+        <TabsContent value="divisi" className="mt-4 min-h-0 min-w-0 flex-1">
           <DivisiGrid />
         </TabsContent>
-        <TabsContent value="bagian" className="mt-4">
+        <TabsContent value="bagian" className="mt-4 min-h-0 min-w-0 flex-1">
           <BagianGrid />
         </TabsContent>
-        <TabsContent value="sub-bagian" className="mt-4">
+        <TabsContent value="sub-bagian" className="mt-4 min-h-0 min-w-0 flex-1">
           <SubBagianGrid />
         </TabsContent>
-        <TabsContent value="pencatat" className="mt-4">
+        <TabsContent value="pencatat" className="mt-4 min-h-0 min-w-0 flex-1">
           <PencatatGrid />
         </TabsContent>
       </Tabs>

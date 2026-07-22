@@ -24,7 +24,6 @@ export function KonfigurasiGrid() {
       columnDefs={KOLOM}
       searchParam="q"
       searchPlaceholder="Cari kunci…"
-      tinggiClassName="h-[540px]"
     />
   )
 }

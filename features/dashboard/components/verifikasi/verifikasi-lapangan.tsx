@@ -603,46 +603,61 @@ export function VerifikasiLapangan({ role }: { role: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          {periode ? `Periode ${formatPeriode(periode)}` : "Semua periode"}
-          {stats?.anomali ? (
-            <span className="ml-2 border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
-              {stats.anomali.toLocaleString("id-ID")} anomali &gt; ±{ambang}%
-            </span>
-          ) : null}
-        </p>
-        <PilihPeriode
-          periodes={stats?.periodes ?? []}
-          nilai={periode ?? null}
-          onGanti={setPeriode}
+    // h-full: SEKARANG aman dipakai — layout.tsx sudah mengunci rantai
+    // tinggi di atas (SidebarInset h-dvh overflow-hidden → div konten
+    // min-h-0 flex-1). items-stretch: kedua kolom otomatis sama-sama
+    // penuh mengisi tinggi yang tersedia (bukan lagi angka calc tebakan).
+    <div className="flex h-full min-h-0 flex-col items-stretch gap-4 lg:flex-row">
+      {/* Panel kiri = kolom mandiri sejak baris paling atas (sejajar
+          card ringkasan), tinggi penuh, scroll sendiri via overflow-y-auto
+          — tidak lagi butuh sticky/calc, cukup h-full karena parent-nya
+          sudah pasti tingginya. */}
+      <aside className="scrollbar-tipis flex h-full min-h-0 w-full shrink-0 flex-col overflow-y-auto border border-border/70 bg-card lg:w-80">
+        <div className="sticky top-0 z-10 shrink-0 border-b border-border/70 bg-card px-4 py-2.5">
+          <h2 className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+            Detail Laporan
+          </h2>
+        </div>
+        {/* key: ganti baris = remount panel, seluruh state form mulai
+            bersih tanpa reset sinkron di effect. */}
+        <PanelLapangan
+          key={idTerpilih ?? "kosong"}
+          id={idTerpilih}
+          aksi={aksi}
+          ambangAnomali={ambang}
+          onTutupAksi={() => setAksi(null)}
+          onSelesai={() => setRefreshKey((k) => k + 1)}
         />
-      </div>
+      </aside>
 
-      {galatStats && <p className="text-xs text-destructive">{galatStats}</p>}
-      <RingkasanVerifikasi stats={stats} />
-
-      <div className="flex flex-col items-stretch gap-4 lg:flex-row lg:items-start">
-        <aside className="w-full shrink-0 border border-border/70 bg-card lg:sticky lg:top-20 lg:w-80">
-          <div className="border-b border-border/70 px-4 py-2.5">
-            <h2 className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
-              Detail Laporan
-            </h2>
-          </div>
-          {/* key: ganti baris = remount panel, seluruh state form mulai
-              bersih tanpa reset sinkron di effect. */}
-          <PanelLapangan
-            key={idTerpilih ?? "kosong"}
-            id={idTerpilih}
-            aksi={aksi}
-            ambangAnomali={ambang}
-            onTutupAksi={() => setAksi(null)}
-            onSelesai={() => setRefreshKey((k) => k + 1)}
+      {/* Kolom kanan: header periode + 4 card (shrink-0, tinggi natural)
+          + tabel (flex-1 min-h-0, mengisi SISA tinggi kolom & scroll
+          sendiri) — bukan lagi 3 blok lepas dengan tinggi ditebak. */}
+      <div className="flex h-full min-h-0 w-full flex-1 flex-col gap-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {periode ? `Periode ${formatPeriode(periode)}` : "Semua periode"}
+            {stats?.anomali ? (
+              <span className="ml-2 border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+                {stats.anomali.toLocaleString("id-ID")} anomali &gt; ±{ambang}%
+              </span>
+            ) : null}
+          </p>
+          <PilihPeriode
+            periodes={stats?.periodes ?? []}
+            nilai={periode ?? null}
+            onGanti={setPeriode}
           />
-        </aside>
+        </div>
 
-        <div className="min-w-0 flex-1">
+        {galatStats && (
+          <p className="shrink-0 text-xs text-destructive">{galatStats}</p>
+        )}
+        <div className="shrink-0">
+          <RingkasanVerifikasi stats={stats} />
+        </div>
+
+        <div className="min-h-0 min-w-0 flex-1">
           <DataGrid
             judul="Laporan Pencatatan Lapangan"
             endpoint="/laporan-harian"
@@ -682,7 +697,7 @@ export function VerifikasiLapangan({ role }: { role: string }) {
             }}
             idTerpilih={idTerpilih}
             refreshKey={refreshKey}
-            tinggiClassName="h-[calc(100dvh-24rem)] min-h-96"
+            tinggiClassName="scrollbar-tipis flex-1 min-h-96"
           />
         </div>
       </div>

@@ -22,7 +22,6 @@ export function TarifGrid() {
       columnDefs={KOLOM}
       searchParam="q"
       searchPlaceholder="Cari golongan…"
-      tinggiClassName="h-[540px]"
     />
   )
 }

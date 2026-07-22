@@ -198,8 +198,11 @@ export function LaporanDrd() {
   const lunas = rekap?.perStatus.find((s) => s.status === "SUDAH_BAYAR");
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    // Rantai tinggi penuh: kepala + kartu statistik shrink-0, tabel mengisi
+    // sisa (flex-1 min-h-0) & memakai gulir-internal AG Grid — konsisten
+    // dengan halaman tabel lain sejak layout.tsx mengunci tinggi.
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {periode
             ? `DRD periode ${formatPeriode(periode)}`
@@ -224,9 +227,9 @@ export function LaporanDrd() {
         </NativeSelect>
       </div>
 
-      {galat && <p className="text-xs text-destructive">{galat}</p>}
+      {galat && <p className="shrink-0 text-xs text-destructive">{galat}</p>}
 
-      <div className="grid grid-cols-1 gap-px border border-border/70 bg-border/70 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid shrink-0 grid-cols-1 gap-px border border-border/70 bg-border/70 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Rekening ditagih"
           nilai={(rekap?.totalRekening ?? 0).toLocaleString("id-ID")}
@@ -255,23 +258,25 @@ export function LaporanDrd() {
         />
       </div>
 
-      <DataGrid
-        judul="Daftar Rekening Ditagih"
-        endpoint="/tagihan/drd"
-        columnDefs={KOLOM}
-        searchParam="q"
-        searchPlaceholder="Cari no. langganan / nama…"
-        filters={[
-          {
-            param: "status",
-            label: "Status",
-            opsi: Object.entries(LABEL_STATUS_TAGIHAN).map(
-              ([value, label]) => ({ value, label }),
-            ),
-          },
-        ]}
-        extraParams={periode ? { periode: String(periode) } : undefined}
-      />
+      <div className="min-h-0 min-w-0 flex-1">
+        <DataGrid
+          judul="Daftar Rekening Ditagih"
+          endpoint="/tagihan/drd"
+          columnDefs={KOLOM}
+          searchParam="q"
+          searchPlaceholder="Cari no. langganan / nama…"
+          filters={[
+            {
+              param: "status",
+              label: "Status",
+              opsi: Object.entries(LABEL_STATUS_TAGIHAN).map(
+                ([value, label]) => ({ value, label }),
+              ),
+            },
+          ]}
+          extraParams={periode ? { periode: String(periode) } : undefined}
+        />
+      </div>
     </div>
   );
 }

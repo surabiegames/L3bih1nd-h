@@ -9,11 +9,12 @@ import { DataGrid } from "../data-grid"
 import { selBool, fmtLabel, KELAS_MONO } from "./sel"
 import { LABEL_ROLE } from "../../lib/label"
 
-const TINGGI = "h-[480px]"
-
+// Tinggi tabel tidak lagi dipatok di sini — grid memakai default `flex-1`
+// dan mengisi TabsContent (lihat organisasi/page.tsx yang sudah full-height),
+// konsisten dengan halaman tabel lain.
 export function DivisiGrid() {
   const kolom: ColDef[] = [{ field: "nama", headerName: "Nama Divisi", minWidth: 240, flex: 2 }]
-  return <DataGrid judul="Divisi" endpoint="/divisi" columnDefs={kolom} searchParam="q" tinggiClassName={TINGGI} />
+  return <DataGrid judul="Divisi" endpoint="/divisi" columnDefs={kolom} searchParam="q" />
 }
 
 export function BagianGrid() {
@@ -23,7 +24,7 @@ export function BagianGrid() {
     { field: "levelKepala", headerName: "Level Kepala", minWidth: 150, valueFormatter: fmtLabel(LABEL_ROLE) },
     { headerName: "Divisi", minWidth: 150, valueGetter: (p) => p.data?.divisi?.nama ?? "—" },
   ]
-  return <DataGrid judul="Bagian" endpoint="/bagian" columnDefs={kolom} searchParam="q" tinggiClassName={TINGGI} />
+  return <DataGrid judul="Bagian" endpoint="/bagian" columnDefs={kolom} searchParam="q" />
 }
 
 export function SubBagianGrid() {
@@ -32,7 +33,7 @@ export function SubBagianGrid() {
     { field: "nama", headerName: "Nama Sub-bagian", minWidth: 220, flex: 2 },
     { headerName: "Bagian", minWidth: 150, valueGetter: (p) => p.data?.bagian?.nama ?? "—" },
   ]
-  return <DataGrid judul="Sub-bagian" endpoint="/sub-bagian" columnDefs={kolom} searchParam="q" tinggiClassName={TINGGI} />
+  return <DataGrid judul="Sub-bagian" endpoint="/sub-bagian" columnDefs={kolom} searchParam="q" />
 }
 
 export function PencatatGrid() {
@@ -58,7 +59,6 @@ export function PencatatGrid() {
       endpoint="/pencatat"
       columnDefs={kolom}
       searchParam="q"
-      tinggiClassName={TINGGI}
     />
   )
 }

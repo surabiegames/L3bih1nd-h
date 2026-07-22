@@ -42,11 +42,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <SidebarProvider>
       <AppSidebar role={role} />
 
-      <SidebarInset>
+      <SidebarInset className="h-dvh overflow-hidden">
         {/* sticky: daftar pelanggan bisa ribuan baris — header (dan tombol
             sidebar di layar kecil) harus tetap terjangkau saat menggulir.
             backdrop-blur + bg semi transparan: grammar yang sama dengan
-            SiteHeader di permukaan publik. */}
+            SiteHeader di permukaan publik.
+            (shrink-0 sudah ada di bawah — dengan SidebarInset sekarang
+            h-dvh+overflow-hidden, header ini otomatis "diam" di atas
+            tanpa perlu sticky lagi, tapi sticky tetap aman dibiarkan.) */}
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-border/70 bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70">
           <SidebarTrigger className="-ml-1" />
           <div aria-hidden="true" className="h-5 w-px bg-border" />
@@ -75,7 +78,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </div>
         </header>
 
-        <div className="flex-1 p-4 md:p-6 lg:p-8">{children}</div>
+        {/* min-h-0 + overflow-hidden BARU: dulu div ini cuma flex-1 tanpa
+            batas, jadi kalau isinya (children) lebih tinggi dari sisa
+            layar, div ini (dan SidebarInset di atasnya) ikut membengkak
+            dan <body> yang scroll. Sekarang dia dipaksa PAS sisa ruang
+            setelah header 56px; halaman anak (mis. VerifikasiLapangan)
+            yang wajib mengatur scroll internalnya sendiri lewat h-full. */}
+        <div className="min-h-0 flex-1 overflow-hidden p-4 md:p-6 lg:p-8">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   )

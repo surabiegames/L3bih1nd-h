@@ -105,7 +105,7 @@ export function DataGrid({
   initialSearch = "",
   filters = [],
   extraParams,
-  tinggiClassName = "h-[calc(100dvh-19rem)] min-h-96",
+  tinggiClassName = "flex-1 min-h-96",
   onRowClicked,
   onRowContextMenu,
   idTerpilih,
@@ -273,11 +273,18 @@ export function DataGrid({
   }
 
   return (
-    <section className="border border-border/70 bg-card">
+    // flex h-full flex-col: SEBELUMNYA section ini block biasa tanpa
+    // tinggi apa pun, sehingga tinggiClassName="h-full" di grid wrapper
+    // di bawah jadi referensi melingkar (section menunggu tinggi grid,
+    // grid menunggu tinggi section) dan resolve ke 0 — AG Grid dapat
+    // instruksi tinggi 0px, baris tidak pernah dirender. Sekarang section
+    // mewarisi tinggi pasti dari parent-nya, toolbar di atas `shrink-0`,
+    // dan grid wrapper `flex-1 min-h-0` benar-benar mengisi sisanya.
+    <section className="flex h-full flex-col border border-border/70 bg-card">
       {/* Toolbar dua baris: baris 1 = identitas tabel + aksi (Kolom,
           Ekspor); baris 2 = pencarian + filter. Dipisah supaya deret filter
           panjang tidak berdesakan dengan tombol aksi di layar sempit. */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/70 px-4 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 px-4 py-2">
         <h2 className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">{judul}</h2>
         {total !== null && (
           <span className="border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
@@ -350,7 +357,7 @@ export function DataGrid({
       </div>
 
       {(searchParam || filters.length > 0) && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-border/70 bg-muted/20 px-4 py-1.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border/70 bg-muted/20 px-4 py-1.5">
           {searchParam && (
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -383,11 +390,15 @@ export function DataGrid({
       )}
 
       {galat && (
-        <p className="border-b border-border/70 bg-destructive/10 px-4 py-2 text-xs text-destructive">{galat}</p>
+        <p className="shrink-0 border-b border-border/70 bg-destructive/10 px-4 py-2 text-xs text-destructive">{galat}</p>
       )}
 
       <div
         className={
+          // min-h-0: WAJIB di flex child yang isinya butuh discroll —
+          // tanpa ini, flex-1 tidak akan pernah mengecil di bawah tinggi
+          // konten instrinsiknya (AG Grid), section jadi ikut membengkak.
+          "min-h-0 scrollbar-tipis " +
           // Header kolom bergaya micro-label seperti panel lain di sistem ini.
           "[&_.ag-header-cell-text]:text-[10px] [&_.ag-header-cell-text]:font-semibold [&_.ag-header-cell-text]:tracking-widest [&_.ag-header-cell-text]:uppercase " +
           // Baris terpilih (master-detail): aksen kiri + latar primary tipis,

@@ -246,40 +246,48 @@ export function VerifikasiMandiri({ bisaAksi }: { bisaAksi: boolean }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          {periode ? `Periode ${formatPeriode(periode)}` : "Semua periode"}
-        </p>
-        <PilihPeriode
-          periodes={stats?.periodes ?? []}
-          nilai={periode ?? null}
-          onGanti={setPeriode}
+    // Struktur kembar verifikasi-lapangan: rantai tinggi h-full (layout.tsx
+    // sudah mengunci SidebarInset h-dvh overflow-hidden → div konten min-h-0
+    // flex-1), panel kiri kolom mandiri yang menggulir sendiri, kolom kanan
+    // = header periode + ringkasan (shrink-0) + tabel (flex-1 min-h-0).
+    <div className="flex h-full min-h-0 flex-col items-stretch gap-4 lg:flex-row">
+      <aside className="scrollbar-tipis flex h-full min-h-0 w-full shrink-0 flex-col overflow-y-auto border border-border/70 bg-card lg:w-80">
+        <div className="sticky top-0 z-10 shrink-0 border-b border-border/70 bg-card px-4 py-2.5">
+          <h2 className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+            Detail Laporan
+          </h2>
+        </div>
+        {/* key: ganti baris = remount panel, seluruh state form mulai
+            bersih tanpa reset sinkron di effect. */}
+        <PanelMandiri
+          key={idTerpilih ?? "kosong"}
+          id={idTerpilih}
+          aksi={aksi}
+          onTutupAksi={() => setAksi(null)}
+          onSelesai={() => setRefreshKey((k) => k + 1)}
         />
-      </div>
+      </aside>
 
-      {galatStats && <p className="text-xs text-destructive">{galatStats}</p>}
-      <RingkasanVerifikasi stats={stats} />
-
-      <div className="flex flex-col items-stretch gap-4 lg:flex-row lg:items-start">
-        <aside className="w-full shrink-0 border border-border/70 bg-card lg:sticky lg:top-20 lg:w-80">
-          <div className="border-b border-border/70 px-4 py-2.5">
-            <h2 className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
-              Detail Laporan
-            </h2>
-          </div>
-          {/* key: ganti baris = remount panel, seluruh state form mulai
-              bersih tanpa reset sinkron di effect. */}
-          <PanelMandiri
-            key={idTerpilih ?? "kosong"}
-            id={idTerpilih}
-            aksi={aksi}
-            onTutupAksi={() => setAksi(null)}
-            onSelesai={() => setRefreshKey((k) => k + 1)}
+      <div className="flex h-full min-h-0 w-full flex-1 flex-col gap-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {periode ? `Periode ${formatPeriode(periode)}` : "Semua periode"}
+          </p>
+          <PilihPeriode
+            periodes={stats?.periodes ?? []}
+            nilai={periode ?? null}
+            onGanti={setPeriode}
           />
-        </aside>
+        </div>
 
-        <div className="min-w-0 flex-1">
+        {galatStats && (
+          <p className="shrink-0 text-xs text-destructive">{galatStats}</p>
+        )}
+        <div className="shrink-0">
+          <RingkasanVerifikasi stats={stats} />
+        </div>
+
+        <div className="min-h-0 min-w-0 flex-1">
           <DataGrid
             judul="Laporan Meter Mandiri"
             endpoint="/laporan-mandiri"
@@ -307,7 +315,7 @@ export function VerifikasiMandiri({ bisaAksi }: { bisaAksi: boolean }) {
             }}
             idTerpilih={idTerpilih}
             refreshKey={refreshKey}
-            tinggiClassName="h-[calc(100dvh-24rem)] min-h-96"
+            tinggiClassName="scrollbar-tipis flex-1 min-h-96"
           />
         </div>
       </div>
